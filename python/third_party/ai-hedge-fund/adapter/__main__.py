@@ -1,28 +1,32 @@
 import asyncio
-import json
+import logging
 from datetime import datetime
 from typing import List
 
 from agno.agent import Agent
 from agno.models.openrouter import OpenRouter
 from dateutil.relativedelta import relativedelta
+from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field, field_validator
 from valuecell.core.agent.decorator import create_wrapped_agent
 from valuecell.core.agent.types import BaseAgent
 
-from src.main import run_hedge_fund
+from src.main import create_workflow
 from src.utils.analysts import ANALYST_ORDER
+from src.utils.progress import progress
 
 allowed_analysts = set(
     key for display_name, key in sorted(ANALYST_ORDER, key=lambda x: x[1])
 )
 allowed_tickers = {"AAPL", "GOOGL", "MSFT", "NVDA", "TSLA"}
 
+logger = logging.getLogger(__name__)
+
 
 class HedgeFundRequest(BaseModel):
     tickers: List[str] = Field(
         ...,
-        description=f"List of stock tickers to analyze. Must be from: {allowed_tickers}",
+        description=f"List of stock tickers to analyze. Must be from: {allowed_tickers}. Otherwise, empty.",
     )
     selected_analysts: List[str] = Field(
         default=[],
@@ -32,6 +36,8 @@ class HedgeFundRequest(BaseModel):
     @field_validator("tickers")
     @classmethod
     def validate_tickers(cls, v):
+        if not v:
+            raise ValueError("No valid tickers are recognized.")
         invalid_tickers = set(v) - allowed_tickers
         if invalid_tickers:
             raise ValueError(
@@ -61,10 +67,13 @@ class AIHedgeFundAgent(BaseAgent):
         )
 
     async def stream(self, query, session_id, task_id):
+        logger.info(f"Parsing query: {query}. Task ID: {task_id}, Session ID: {session_id}")
         run_response = self.agno_agent.run(
             f"Parse the following hedge fund analysis request and extract the parameters: {query}"
         )
         hedge_fund_request = run_response.content
+        if not isinstance(hedge_fund_request, HedgeFundRequest):
+            raise ValueError(f"Unable to parse query: {query}")
 
         end_date = datetime.now().strftime("%Y-%m-%d")
         end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
@@ -94,7 +103,10 @@ class AIHedgeFundAgent(BaseAgent):
             },
         }
 
-        result = run_hedge_fund(
+        logger.info(
+            f"Start analyzing. Task ID: {task_id}, Session ID: {session_id}"
+        )
+        for stream_type, chunk in run_hedge_fund_stream(
             tickers=hedge_fund_request.tickers,
             start_date=start_date,
             end_date=end_date,
@@ -102,12 +114,61 @@ class AIHedgeFundAgent(BaseAgent):
             model_name="openai/gpt-4o-mini",
             model_provider="OpenRouter",
             selected_analysts=hedge_fund_request.selected_analysts,
-        )
+        ):
+            if not isinstance(chunk, str):
+                continue
+            yield {
+                "content": chunk,
+                "is_task_complete": False,
+            }
 
         yield {
-            "content": json.dumps(result),
+            "content": "",
             "is_task_complete": True,
         }
+
+
+def run_hedge_fund_stream(
+    tickers: list[str],
+    start_date: str,
+    end_date: str,
+    portfolio: dict,
+    selected_analysts: list[str],
+    show_reasoning: bool = False,
+    model_name: str = "gpt-4.1",
+    model_provider: str = "OpenAI",
+):
+    # Start progress tracking
+    progress.start()
+
+    try:
+        # Create a new workflow if analysts are customized
+        workflow = create_workflow(selected_analysts)
+        _agent = workflow.compile()
+
+        inputs = {
+            "messages": [
+                HumanMessage(
+                    content="Make trading decisions based on the provided data.",
+                )
+            ],
+            "data": {
+                "tickers": tickers,
+                "portfolio": portfolio,
+                "start_date": start_date,
+                "end_date": end_date,
+                "analyst_signals": {},
+            },
+            "metadata": {
+                "show_reasoning": show_reasoning,
+                "model_name": model_name,
+                "model_provider": model_provider,
+            },
+        }
+        yield from _agent.stream(inputs, stream_mode=["custom", "messages"])
+    finally:
+        # Stop progress tracking
+        progress.stop()
 
 
 if __name__ == "__main__":
