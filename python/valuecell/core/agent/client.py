@@ -5,7 +5,7 @@ from a2a.client import A2ACardResolver, ClientConfig, ClientFactory
 from a2a.types import Message, Part, PushNotificationConfig, Role, TextPart
 from valuecell.utils import generate_uuid
 
-from .types import MessageResponse
+from ..types import RemoteAgentResponse
 
 
 class AgentClient:
@@ -48,8 +48,12 @@ class AgentClient:
         self._client = client_factory.create(card)
 
     async def send_message(
-        self, text: str, context_id: str = None, streaming: bool = False
-    ) -> MessageResponse | AsyncIterator[MessageResponse]:
+        self,
+        query: str,
+        context_id: str = None,
+        metadata: dict = None,
+        streaming: bool = False,
+    ) -> AsyncIterator[RemoteAgentResponse]:
         """Send message to Agent.
 
         If `streaming` is True, return an async iterator producing (task, event) pairs.
@@ -59,18 +63,28 @@ class AgentClient:
 
         message = Message(
             role=Role.user,
-            parts=[Part(root=TextPart(text=text))],
+            parts=[Part(root=TextPart(text=query))],
             message_id=generate_uuid("msg"),
             context_id=context_id or generate_uuid("ctx"),
+            metadata=metadata if metadata else None,
         )
 
-        generator = self._client.send_message(message)
-        if streaming:
-            return generator
+        source_gen = self._client.send_message(message)
 
-        task, event = await generator.__anext__()
-        await generator.aclose()
-        return task, event
+        async def wrapper() -> AsyncIterator[RemoteAgentResponse]:
+            try:
+                if streaming:
+                    async for item in source_gen:
+                        yield item
+                else:
+                    # yield only the first item
+                    item = await source_gen.__anext__()
+                    yield item
+            finally:
+                # ensure underlying generator is closed
+                await source_gen.aclose()
+
+        return wrapper()
 
     async def get_agent_card(self):
         await self._ensure_initialized()
