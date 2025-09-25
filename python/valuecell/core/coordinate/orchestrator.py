@@ -1,30 +1,22 @@
 import asyncio
 import logging
-from collections import defaultdict
 from typing import AsyncGenerator, Dict, Optional
 
 from a2a.types import TaskArtifactUpdateEvent, TaskState, TaskStatusUpdateEvent
 from valuecell.core.agent.connect import get_default_remote_connections
-from valuecell.core.agent.responses import EventPredicates
 from valuecell.core.coordinate.response import ResponseFactory
+from valuecell.core.coordinate.response_buffer import ResponseBuffer, SaveItem
 from valuecell.core.coordinate.response_router import (
     RouteResult,
     SideEffectKind,
-    handle_artifact_update,
     handle_status_update,
 )
-from valuecell.core.session import Role, SessionStatus, get_default_session_manager
+from valuecell.core.session import SessionStatus, get_default_session_manager
 from valuecell.core.task import Task, get_default_task_manager
 from valuecell.core.task.models import TaskPattern
-from valuecell.core.types import (
-    BaseResponse,
-    NotifyResponseEvent,
-    StreamResponseEvent,
-    UserInput,
-)
+from valuecell.core.types import BaseResponse, UserInput
 from valuecell.utils.uuid import generate_thread_id
 
-from .callback import store_task_in_session
 from .models import ExecutionPlan
 from .planner import ExecutionPlanner, UserInputRequest
 
@@ -126,6 +118,8 @@ class AgentOrchestrator:
         self.planner = ExecutionPlanner(self.agent_connections)
 
         self._response_factory = ResponseFactory()
+        # Buffer for streaming responses -> persisted ConversationItems
+        self._response_buffer = ResponseBuffer()
 
     # ==================== Public API Methods ====================
 
@@ -199,32 +193,18 @@ class AgentOrchestrator:
         """Get the user input prompt for a specific session"""
         return self.user_input_manager.get_request_prompt(session_id)
 
-    async def create_session(self, user_id: str, title: str = None):
-        """Create a new session for the user"""
-        return await self.session_manager.create_session(user_id, title)
-
     async def close_session(self, session_id: str):
         """Close an existing session and clean up resources"""
         # Cancel any running tasks for this session
-        cancelled_count = await self.task_manager.cancel_session_tasks(session_id)
+        await self.task_manager.cancel_session_tasks(session_id)
 
         # Clean up execution context
         await self._cancel_execution(session_id)
 
-        # Add system message to mark session as closed
-        await self.session_manager.add_message(
-            session_id,
-            Role.SYSTEM,
-            f"Session closed. {cancelled_count} tasks were cancelled.",
-        )
-
-    async def get_session_history(self, session_id: str):
+    async def get_session_history(self, session_id: str) -> list[BaseResponse]:
         """Get session message history"""
-        return await self.session_manager.get_session_messages(session_id)
-
-    async def get_user_sessions(self, user_id: str, limit: int = 100, offset: int = 0):
-        """Get all sessions for a user"""
-        return await self.session_manager.list_user_sessions(user_id, limit, offset)
+        items = await self.session_manager.get_session_messages(session_id)
+        return [self._response_factory.from_conversation_item(it) for it in items]
 
     async def cleanup(self):
         """Cleanup resources and expired contexts"""
@@ -271,10 +251,20 @@ class AgentOrchestrator:
         context.add_metadata(pending_response=user_input.query)
         await self.provide_user_input(session_id, user_input.query)
 
+        thread_id = generate_thread_id()
+        response = self._response_factory.thread_started(
+            conversation_id=session_id, thread_id=thread_id, user_query=user_input.query
+        )
+        await self._persist_from_buffer(response)
+        yield response
+        context.thread_id = thread_id
+
         # Resume based on execution stage
         if context.stage == "planning":
-            async for chunk in self._continue_planning(session_id, context):
-                yield chunk
+            async for response in self._continue_planning(
+                session_id, thread_id, context
+            ):
+                yield response
         # Resuming execution stage is not yet supported
         else:
             yield self._response_factory.system_failed(
@@ -288,14 +278,11 @@ class AgentOrchestrator:
         """Handle a new user request"""
         session_id = user_input.meta.session_id
         thread_id = generate_thread_id()
-        yield self._response_factory.thread_started(
-            conversation_id=session_id, thread_id=thread_id
+        response = self._response_factory.thread_started(
+            conversation_id=session_id, thread_id=thread_id, user_query=user_input.query
         )
-
-        # Add user message to session
-        await self.session_manager.add_message(
-            session_id, Role.USER, user_input.query, user_id=user_input.meta.user_id
-        )
+        await self._persist_from_buffer(response)
+        yield response
 
         # Create planning task with user input callback
         context_aware_callback = self._create_context_aware_callback(session_id)
@@ -305,10 +292,10 @@ class AgentOrchestrator:
         )
 
         # Monitor planning progress
-        async for chunk in self._monitor_planning_task(
+        async for response in self._monitor_planning_task(
             planning_task, thread_id, user_input, context_aware_callback
         ):
-            yield chunk
+            yield response
 
     def _create_context_aware_callback(self, session_id: str):
         """Create a callback that adds session context to user input requests"""
@@ -344,17 +331,19 @@ class AgentOrchestrator:
 
                 # Update session status and send user input request
                 await self._request_user_input(session_id)
-                yield self._response_factory.plan_require_user_input(
+                response = self._response_factory.plan_require_user_input(
                     session_id, thread_id, self.get_user_input_prompt(session_id)
                 )
+                await self._persist_from_buffer(response)
+                yield response
                 return
 
             await asyncio.sleep(ASYNC_SLEEP_INTERVAL)
 
         # Planning completed, execute plan
         plan = await planning_task
-        async for chunk in self._execute_plan_with_input_support(plan, thread_id):
-            yield chunk
+        async for response in self._execute_plan_with_input_support(plan, thread_id):
+            yield response
 
     async def _request_user_input(self, session_id: str):
         """Set session to require user input and send the request"""
@@ -379,16 +368,11 @@ class AgentOrchestrator:
         return True
 
     async def _continue_planning(
-        self, session_id: str, context: ExecutionContext
+        self, session_id: str, thread_id: str, context: ExecutionContext
     ) -> AsyncGenerator[BaseResponse, None]:
         """Resume planning stage execution"""
         planning_task = context.get_metadata("planning_task")
         original_user_input = context.get_metadata("original_user_input")
-        thread_id = generate_thread_id()
-        context.thread_id = thread_id
-        yield self._response_factory.thread_started(
-            conversation_id=session_id, thread_id=thread_id
-        )
 
         if not all([planning_task, original_user_input]):
             yield self._response_factory.plan_failed(
@@ -406,9 +390,11 @@ class AgentOrchestrator:
                 prompt = self.get_user_input_prompt(session_id)
                 # Ensure session is set to require user input again for repeated prompts
                 await self._request_user_input(session_id)
-                yield self._response_factory.plan_require_user_input(
+                response = self._response_factory.plan_require_user_input(
                     session_id, thread_id, prompt
                 )
+                await self._persist_from_buffer(response)
+                yield response
                 return
 
             await asyncio.sleep(ASYNC_SLEEP_INTERVAL)
@@ -417,8 +403,8 @@ class AgentOrchestrator:
         plan = await planning_task
         del self._execution_contexts[session_id]
 
-        async for message in self._execute_plan_with_input_support(plan, thread_id):
-            yield message
+        async for response in self._execute_plan_with_input_support(plan, thread_id):
+            yield response
 
     async def _cancel_execution(self, session_id: str):
         """Cancel execution and clean up all related resources"""
@@ -481,9 +467,6 @@ class AgentOrchestrator:
             )
             return
 
-        # Track agent responses for session storage
-        agent_responses = defaultdict(str)
-
         for task in plan.tasks:
             try:
                 # Register the task with TaskManager
@@ -493,42 +476,24 @@ class AgentOrchestrator:
                 async for response in self._execute_task_with_input_support(
                     task, thread_id, metadata
                 ):
+                    # Ensure buffered events carry a stable paragraph item_id
+                    annotated = self._response_buffer.annotate(response)
                     # Accumulate based on event
-                    if response.event in {
-                        StreamResponseEvent.MESSAGE_CHUNK,
-                        StreamResponseEvent.REASONING,
-                        NotifyResponseEvent.MESSAGE,
-                    } and isinstance(response.data.payload.content, str):
-                        agent_responses[task.agent_name] += (
-                            response.data.payload.content
-                        )
-                    yield response
+                    yield annotated
 
-                    if (
-                        EventPredicates.is_task_completed(response.event)
-                        or task.pattern == TaskPattern.RECURRING
-                    ):
-                        if agent_responses[task.agent_name].strip():
-                            await self.session_manager.add_message(
-                                session_id,
-                                Role.AGENT,
-                                agent_responses[task.agent_name],
-                            )
-                            agent_responses[task.agent_name] = ""
+                    # Persist via ResponseBuffer
+                    await self._persist_from_buffer(annotated)
 
             except Exception as e:
-                error_msg = f"(Error) Error executing {task.agent_name}: {str(e)}"
+                error_msg = f"(Error) Error executing {task.task_id}: {str(e)}"
                 logger.exception(f"Task execution failed: {error_msg}")
                 yield self._response_factory.task_failed(
                     session_id,
                     thread_id,
                     task.task_id,
-                    _generate_task_default_subtask_id(task.task_id),
                     error_msg,
                 )
 
-        # Save any remaining agent responses
-        await self._save_remaining_responses(session_id, agent_responses)
         yield self._response_factory.done(session_id, thread_id)
 
     async def _execute_task_with_input_support(
@@ -551,7 +516,6 @@ class AgentOrchestrator:
             agent_card = await self.agent_connections.start_agent(
                 agent_name,
                 with_listener=False,
-                notification_callback=store_task_in_session,
             )
             client = await self.agent_connections.get_client(agent_name)
             if not client:
@@ -581,6 +545,7 @@ class AgentOrchestrator:
                         self._response_factory, task, thread_id, event
                     )
                     for r in result.responses:
+                        r = self._response_buffer.annotate(r)
                         yield r
                     # Apply side effects
                     for eff in result.side_effects:
@@ -593,11 +558,9 @@ class AgentOrchestrator:
                     continue
 
                 if isinstance(event, TaskArtifactUpdateEvent):
-                    responses = await handle_artifact_update(
-                        self._response_factory, task, thread_id, event
+                    logger.info(
+                        f"Received unexpected artifact update for task {task.task_id}: {event}"
                     )
-                    for r in responses:
-                        yield r
                     continue
 
             # Complete task successfully
@@ -606,25 +569,42 @@ class AgentOrchestrator:
                 conversation_id=task.session_id,
                 thread_id=thread_id,
                 task_id=task.task_id,
-                subtask_id=_generate_task_default_subtask_id(task.task_id),
             )
+            # Finalize buffered aggregates for this task (explicit flush at task end)
+            items = self._response_buffer.flush_task(
+                conversation_id=task.session_id,
+                thread_id=thread_id,
+                task_id=task.task_id,
+            )
+            await self._persist_items(items)
 
         except Exception as e:
+            # On failure, finalize any buffered aggregates for this task
+            items = self._response_buffer.flush_task(
+                conversation_id=task.session_id,
+                thread_id=thread_id,
+                task_id=task.task_id,
+            )
+            await self._persist_items(items)
             await self.task_manager.fail_task(task.task_id, str(e))
             raise e
 
-    async def _save_remaining_responses(self, session_id: str, agent_responses: dict):
-        """Save any remaining agent responses to the session"""
-        for agent_name, full_response in agent_responses.items():
-            if full_response.strip():
-                await self.session_manager.add_message(
-                    session_id, Role.AGENT, full_response
-                )
+    async def _persist_from_buffer(self, response: BaseResponse):
+        """Ingest a response into the buffer and persist any SaveMessages produced."""
+        items = self._response_buffer.ingest(response)
+        await self._persist_items(items)
 
-
-def _generate_task_default_subtask_id(task_id: str) -> str:
-    """Generate a default subtask ID based on the main task ID"""
-    return f"{task_id}-default_subtask"
+    async def _persist_items(self, items: list[SaveItem]):
+        for it in items:
+            await self.session_manager.add_message(
+                role=it.role,
+                event=it.event,
+                conversation_id=it.conversation_id,
+                thread_id=it.thread_id,
+                task_id=it.task_id,
+                payload=it.payload,
+                item_id=it.item_id,
+            )
 
 
 # ==================== Module-level Factory Function ====================

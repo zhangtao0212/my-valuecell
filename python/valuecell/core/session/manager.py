@@ -1,11 +1,18 @@
+import os
 from datetime import datetime
 from typing import List, Optional
 
+from valuecell.core.types import (
+    ConversationItem,
+    ConversationItemEvent,
+    ResponsePayload,
+    Role,
+)
 from valuecell.utils import generate_uuid
 
-from .models import Message, Role, Session, SessionStatus
+from .message_store import InMemoryMessageStore, MessageStore, SQLiteMessageStore
+from .models import Session, SessionStatus
 from .store import InMemorySessionStore, SessionStore
-from .message_store import MessageStore, InMemoryMessageStore
 
 
 class SessionManager:
@@ -63,13 +70,14 @@ class SessionManager:
 
     async def add_message(
         self,
-        session_id: str,
         role: Role,
-        content: str,
-        user_id: Optional[str] = None,
-        agent_name: Optional[str] = None,
+        event: ConversationItemEvent,
+        conversation_id: str,
+        thread_id: Optional[str] = None,
         task_id: Optional[str] = None,
-    ) -> Optional[Message]:
+        payload: ResponsePayload = None,
+        item_id: Optional[str] = None,
+    ) -> Optional[ConversationItem]:
         """Add message to session
 
         Args:
@@ -81,41 +89,46 @@ class SessionManager:
             task_id: Associated task ID (optional)
         """
         # Verify session exists
-        session = await self.get_session(session_id)
+        session = await self.get_session(conversation_id)
         if not session:
             return None
 
-        # Use provided user_id or get from session
-        if user_id is None:
-            user_id = session.user_id
-
         # Create message
-        message = Message(
-            message_id=generate_uuid("msg"),
-            session_id=session_id,
-            user_id=user_id,
-            agent_name=agent_name,
+        # Serialize payload to JSON string if it's a pydantic model
+        payload_str = None
+        if payload is not None:
+            try:
+                # pydantic BaseModel supports model_dump_json
+                payload_str = payload.model_dump_json(exclude_none=True)
+            except Exception:
+                try:
+                    payload_str = str(payload)
+                except Exception:
+                    payload_str = None
+
+        item = ConversationItem(
+            item_id=item_id or generate_uuid("item"),
             role=role,
-            content=content,
+            event=event,
+            conversation_id=conversation_id,
+            thread_id=thread_id,
             task_id=task_id,
+            payload=payload_str,
         )
 
         # Save message directly to message store
-        await self.message_store.save_message(message)
+        await self.message_store.save_message(item)
 
         # Update session timestamp
         session.touch()
         await self.session_store.save_session(session)
 
-        return message
+        return item
 
     async def get_session_messages(
         self,
         session_id: str,
-        limit: Optional[int] = None,
-        offset: int = 0,
-        role: Optional[Role] = None,
-    ) -> List[Message]:
+    ) -> List[ConversationItem]:
         """Get messages for a session with optional filtering and pagination
 
         Args:
@@ -124,13 +137,13 @@ class SessionManager:
             offset: Number of messages to skip
             role: Filter by specific role (optional)
         """
-        return await self.message_store.get_messages(session_id, limit, offset, role)
+        return await self.message_store.get_messages(session_id)
 
-    async def get_latest_message(self, session_id: str) -> Optional[Message]:
+    async def get_latest_message(self, session_id: str) -> Optional[ConversationItem]:
         """Get latest message in a session"""
         return await self.message_store.get_latest_message(session_id)
 
-    async def get_message(self, message_id: str) -> Optional[Message]:
+    async def get_message(self, message_id: str) -> Optional[ConversationItem]:
         """Get a specific message by ID"""
         return await self.message_store.get_message(message_id)
 
@@ -138,7 +151,9 @@ class SessionManager:
         """Get total message count for a session"""
         return await self.message_store.get_message_count(session_id)
 
-    async def get_messages_by_role(self, session_id: str, role: Role) -> List[Message]:
+    async def get_messages_by_role(
+        self, session_id: str, role: Role
+    ) -> List[ConversationItem]:
         """Get messages filtered by role"""
         return await self.message_store.get_messages(session_id, role=role)
 
@@ -191,7 +206,23 @@ class SessionManager:
 
 
 # Default session manager instance
-_session_manager = SessionManager()
+def _default_db_path() -> str:
+    """Resolve repository root and return default DB path valuecell.db.
+
+    Layout assumption: this file is at repo_root/python/valuecell/core/session/manager.py
+    We walk up 4 levels to reach repo_root.
+    """
+    here = os.path.dirname(__file__)
+    repo_root = os.path.abspath(os.path.join(here, "..", "..", "..", ".."))
+    return os.path.join(repo_root, "valuecell.db")
+
+
+def _resolve_db_path() -> str:
+    return os.environ.get("VALUECELL_SQLITE_DB") or _default_db_path()
+
+
+# Default: use SQLite at repo root valuecell.db (env VALUECELL_SQLITE_DB overrides)
+_session_manager = SessionManager(message_store=SQLiteMessageStore(_resolve_db_path()))
 
 
 def get_default_session_manager() -> SessionManager:
