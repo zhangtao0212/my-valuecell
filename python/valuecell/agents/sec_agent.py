@@ -7,7 +7,7 @@ from datetime import datetime
 from enum import Enum
 from typing import AsyncGenerator, Dict, Iterator
 
-from agno.agent import Agent, RunResponseEvent
+from agno.agent import Agent, RunOutputEvent
 from agno.models.openrouter import OpenRouter
 from edgar import Company, set_identity
 from pydantic import BaseModel, Field, field_validator
@@ -76,7 +76,7 @@ class Sec13FundAgentConfig:
         self.request_timeout = int(os.getenv("SEC_REQUEST_TIMEOUT", "30"))
 
 
-class SecAgent(BaseAgent):
+class SECAgent(BaseAgent):
     """
     Intelligent SEC analysis agent supporting financial data queries and 13F fund holdings analysis
     """
@@ -301,7 +301,7 @@ class SecAgent(BaseAgent):
                     filings = company.get_filings(form=filing_type).head(3)
                     if len(filings) > 0:
                         all_filings_data[filing_type] = []
-                        for i, filing in filings.iterrows():
+                        for filing in filings:
                             filing_info = {
                                 "date": filing.filing_date,
                                 "accession_number": filing.accession_number,
@@ -358,13 +358,11 @@ class SecAgent(BaseAgent):
             Please ensure the analysis is objective and professional, based on actual data, avoiding excessive speculation.
             """
 
-            response_stream: Iterator[
-                RunResponseEvent
-            ] = await self.analysis_agent.arun(
+            response_stream: Iterator[RunOutputEvent] = self.analysis_agent.arun(
                 analysis_prompt, stream=True, stream_intermediate_steps=True
             )
             async for event in response_stream:
-                if event.event == "RunResponseContent":
+                if event.event == "RunContent":
                     yield streaming.message_chunk(event.content)
                 elif event.event == "ToolCallStarted":
                     yield streaming.tool_call_started(
@@ -451,13 +449,11 @@ class SecAgent(BaseAgent):
             Please ensure the analysis is objective and professional, based on actual data, avoiding excessive speculation.
             """
 
-            response_stream: Iterator[
-                RunResponseEvent
-            ] = await self.analysis_agent.arun(
+            response_stream: Iterator[RunOutputEvent] = await self.analysis_agent.arun(
                 analysis_prompt, stream=True, stream_intermediate_steps=True
             )
             async for event in response_stream:
-                if event.event == "RunResponseContent":
+                if event.event == "RunContent":
                     yield streaming.message_chunk(event.content)
                 elif event.event == "ToolCallStarted":
                     yield streaming.tool_call_started(
@@ -622,5 +618,5 @@ class SecAgent(BaseAgent):
 
 
 if __name__ == "__main__":
-    agent = create_wrapped_agent(SecAgent)
+    agent = create_wrapped_agent(SECAgent)
     asyncio.run(agent.serve())
