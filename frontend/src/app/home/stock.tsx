@@ -138,7 +138,7 @@ const Stock = memo(function Stock() {
         </div>
         <Button
           variant="secondary"
-          className="text-neutral-400"
+          className="cursor-pointer text-neutral-400"
           onClick={handleRemoveStock}
           disabled={removeStockMutation.isPending}
         >
@@ -215,7 +215,7 @@ const Stock = memo(function Stock() {
       <div className="flex flex-col gap-4">
         <h2 className="font-bold text-lg">About</h2>
 
-        <p className="text-neutral-500 text-sm leading-6">
+        <p className="line-clamp-4 text-neutral-500 text-sm leading-6">
           {stockDetailData?.properties?.business_summary}
         </p>
 

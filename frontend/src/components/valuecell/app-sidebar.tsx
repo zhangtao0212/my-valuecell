@@ -4,12 +4,14 @@ import {
   memo,
   type ReactNode,
   useMemo,
+  useState,
 } from "react";
-import { NavLink, useLocation } from "react-router";
+import { NavLink } from "react-router";
 import { useGetAgentList } from "@/api/agent";
 import { BookOpen, ChartBarVertical, Logo, Setting, User } from "@/assets/svg";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import AgentAvatar from "./agent-avatar";
 import ScrollContainer from "./scroll/scroll-container";
 import SvgIcon from "./svg-icon";
@@ -50,7 +52,7 @@ const Sidebar: FC<SidebarProps> = ({ children, className }) => {
   return (
     <div
       className={cn(
-        "flex w-20 flex-col items-center gap-3 bg-neutral-100 px-4 py-5",
+        "flex w-16 flex-col items-center bg-neutral-100",
         className,
       )}
     >
@@ -60,12 +62,12 @@ const Sidebar: FC<SidebarProps> = ({ children, className }) => {
 };
 
 const SidebarHeader: FC<SidebarHeaderProps> = ({ children, className }) => {
-  return <div className={className}>{children}</div>;
+  return <div className={cn("px-4 pt-5 pb-3", className)}>{children}</div>;
 };
 
 const SidebarContent: FC<SidebarContentProps> = ({ children, className }) => {
   return (
-    <div className={cn("flex flex-1 flex-col gap-3", className)}>
+    <div className={cn("flex w-full flex-1 flex-col gap-3", className)}>
       {children}
     </div>
   );
@@ -76,7 +78,11 @@ const SidebarFooter: FC<SidebarFooterProps> = ({ children, className }) => {
 };
 
 const SidebarMenu: FC<SidebarMenuProps> = ({ children, className }) => {
-  return <div className={cn("flex flex-col gap-3", className)}>{children}</div>;
+  return (
+    <div className={cn("flex flex-col items-center gap-3 pt-3", className)}>
+      {children}
+    </div>
+  );
 };
 
 const SidebarMenuItem: FC<SidebarItemProps> = ({
@@ -91,7 +97,7 @@ const SidebarMenuItem: FC<SidebarItemProps> = ({
       type="button"
       onClick={onClick}
       className={cn(
-        "box-border flex size-12 items-center justify-center rounded-full",
+        "box-border flex size-10 items-center justify-center rounded-full",
         "cursor-pointer transition-all",
         type === "button" && [
           "bg-neutral-200 p-3",
@@ -99,9 +105,9 @@ const SidebarMenuItem: FC<SidebarItemProps> = ({
           "data-[active=true]:bg-black data-[active=true]:text-white",
         ],
         type === "agent" && [
-          "border border-neutral-200 bg-white",
+          "box-border border border-neutral-200 bg-white",
           "hover:data-[active=false]:border-neutral-300",
-          "data-[active=true]:border-black",
+          "data-[active=true]:border-white data-[active=true]:shadow-[0_4px_12px_0_rgba(14,1,1,0.4)]",
         ],
         className,
       )}
@@ -113,8 +119,7 @@ const SidebarMenuItem: FC<SidebarItemProps> = ({
 };
 
 const AppSidebar: FC = () => {
-  const { pathname } = useLocation();
-  const prefixPath = pathname.split("/")[1];
+  const [currentActive, setCurrentActive] = useState<string>("/");
 
   const navItems = useMemo(() => {
     return {
@@ -150,18 +155,23 @@ const AppSidebar: FC = () => {
     return agentList?.map((agent) => ({
       id: agent.agent_name,
       icon: agent.icon_url,
-      label: agent.agent_name,
+      label: agent.display_name,
       to: `/agent/${agent.agent_name}`,
     }));
   }, [agentList]);
 
   // verify the button is active
-  const verifyActive = (to: string) => `/${prefixPath}` === to;
+  const verifyActive = (to: string) => currentActive === to;
 
   return (
     <Sidebar>
       <SidebarHeader>
-        <NavLink to={navItems.home[0].to}>
+        <NavLink
+          to={navItems.home[0].to}
+          onClick={() => {
+            setCurrentActive(navItems.home[0].to);
+          }}
+        >
           <SidebarMenuItem
             aria-label={navItems.home[0].label}
             data-active={verifyActive(navItems.home[0].to)}
@@ -172,21 +182,32 @@ const AppSidebar: FC = () => {
         </NavLink>
       </SidebarHeader>
 
-      <Separator />
+      <Separator className="!w-10 bg-white" />
 
       <SidebarContent className="max-h-[calc(100vh-11rem)]">
-        <ScrollContainer>
+        <ScrollContainer className="w-full">
           <SidebarMenu>
             {agentItems?.map((item) => {
               return (
-                <NavLink key={item.id} to={item.to}>
-                  <SidebarMenuItem
-                    type="agent"
-                    aria-label={item.label}
-                    data-active={verifyActive(item.to)}
-                  >
-                    <AgentAvatar agentName={item.id} />
-                  </SidebarMenuItem>
+                <NavLink
+                  key={item.id}
+                  to={item.to}
+                  onClick={() => {
+                    setCurrentActive(item.to);
+                  }}
+                >
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <SidebarMenuItem
+                        type="agent"
+                        aria-label={item.label}
+                        data-active={verifyActive(item.to)}
+                      >
+                        <AgentAvatar agentName={item.id} />
+                      </SidebarMenuItem>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">{item.label}</TooltipContent>
+                  </Tooltip>
                 </NavLink>
               );
             })}
