@@ -19,7 +19,6 @@ from typing import Callable, List, Optional
 from a2a.types import AgentCard
 from agno.agent import Agent
 from agno.models.openrouter import OpenRouter
-from agno.tools.user_control_flow import UserControlFlowTools
 
 from valuecell.core.agent.connect import RemoteConnections
 from valuecell.core.coordinate.planner_prompts import (
@@ -149,7 +148,8 @@ class ExecutionPlanner:
                 max_tokens=None,
             ),
             tools=[
-                UserControlFlowTools(),
+                # TODO: enable UserControlFlowTools when stable
+                # UserControlFlowTools(),
                 self.tool_get_agent_description,
             ],
             markdown=False,
@@ -161,7 +161,7 @@ class ExecutionPlanner:
 
         # Execute planning with the agent
         run_response = agent.run(
-            message=PlannerInput(
+            PlannerInput(
                 desired_agent_name=user_input.desired_agent_name,
                 query=user_input.query,
             )
@@ -187,7 +187,9 @@ class ExecutionPlanner:
 
             # Continue agent execution with updated inputs
             run_response = agent.continue_run(
-                run_id=run_response.run_id, updated_tools=run_response.tools
+                # TODO: rollback to `run_id=run_response.run_id` when bug fixed by Agno
+                run_response=run_response,
+                updated_tools=run_response.tools,
             )
 
             if not run_response.is_paused:
