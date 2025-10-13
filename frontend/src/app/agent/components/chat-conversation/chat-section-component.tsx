@@ -1,4 +1,3 @@
-import { parse } from "best-effort-json-parser";
 import { type FC, memo, useState } from "react";
 import BackButton from "@/components/valuecell/button/back-button";
 import { MarkdownRenderer } from "@/components/valuecell/renderer";
@@ -33,9 +32,7 @@ const SecFeedComponent: FC<{ items: ChatItem[] }> = ({ items }) => {
                   <Component
                     key={item.item_id}
                     content={item.payload.content}
-                    onClick={() =>
-                      setSelectedItemContent(parse(item.payload.content).data)
-                    }
+                    onOpen={(data) => setSelectedItemContent(data)}
                   />
                 ),
             )}
@@ -47,11 +44,14 @@ const SecFeedComponent: FC<{ items: ChatItem[] }> = ({ items }) => {
 };
 
 // component mapping table
-const COMPONENT_MAP: Record<SectionComponentType, FC<{ items: ChatItem[] }>> = {
+const SECTION_COMPONENT_MAP: Record<
+  SectionComponentType,
+  FC<{ items: ChatItem[] }>
+> = {
   sec_feed: SecFeedComponent,
 };
 
-interface ChatDynamicComponentProps {
+interface ChatSectionComponentProps {
   componentType: SectionComponentType;
   items: ChatItem[];
 }
@@ -60,13 +60,13 @@ interface ChatDynamicComponentProps {
  * dynamic component renderer
  * @description dynamically select the appropriate component to render based on componentType
  */
-const ChatDynamicComponent: FC<ChatDynamicComponentProps> = ({
+const ChatSectionComponent: FC<ChatSectionComponentProps> = ({
   componentType,
   items,
 }) => {
-  const Component = COMPONENT_MAP[componentType];
+  const Component = SECTION_COMPONENT_MAP[componentType];
 
   return <Component items={items} />;
 };
 
-export default memo(ChatDynamicComponent);
+export default memo(ChatSectionComponent);
