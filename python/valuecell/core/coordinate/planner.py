@@ -18,16 +18,15 @@ from typing import Callable, List, Optional
 
 from a2a.types import AgentCard
 from agno.agent import Agent
+from agno.db.in_memory import InMemoryDb
 from agno.models.openrouter import OpenRouter
 
 from valuecell.core.agent.connect import RemoteConnections
-from valuecell.core.coordinate.planner_prompts import (
-    PLANNER_INSTRUCTIONS,
-    create_prompt_with_datetime,
-)
+from valuecell.core.coordinate.planner_prompts import PLANNER_INSTRUCTIONS
 from valuecell.core.task import Task, TaskPattern, TaskStatus
 from valuecell.core.types import UserInput
 from valuecell.utils import generate_uuid
+from valuecell.utils.env import agent_debug_mode_enabled
 
 from .models import ExecutionPlan, PlannerInput, PlannerResponse
 
@@ -107,9 +106,10 @@ class ExecutionPlanner:
         Returns:
             ExecutionPlan: A structured plan with tasks for execution.
         """
+        conversation_id = user_input.meta.conversation_id
         plan = ExecutionPlan(
             plan_id=generate_uuid("plan"),
-            conversation_id=user_input.meta.conversation_id,
+            conversation_id=conversation_id,
             user_id=user_input.meta.user_id,
             orig_query=user_input.query,  # Store the original query
             created_at=datetime.now().isoformat(),
@@ -117,14 +117,19 @@ class ExecutionPlanner:
 
         # Analyze input and create appropriate tasks
         tasks = await self._analyze_input_and_create_tasks(
-            user_input, user_input_callback
+            user_input,
+            conversation_id,
+            user_input_callback,
         )
         plan.tasks = tasks
 
         return plan
 
     async def _analyze_input_and_create_tasks(
-        self, user_input: UserInput, user_input_callback: Optional[Callable] = None
+        self,
+        user_input: UserInput,
+        conversation_id: str,
+        user_input_callback: Optional[Callable] = None,
     ) -> List[Task]:
         """
         Analyze user input and produce a list of `Task` objects.
@@ -136,6 +141,7 @@ class ExecutionPlanner:
 
         Args:
             user_input: The original user input to analyze.
+            conversation_id: Conversation this planning belongs to.
             user_input_callback: Optional async callback used for Human-in-the-Loop.
 
         Returns:
@@ -144,7 +150,7 @@ class ExecutionPlanner:
         # Create planning agent with appropriate tools and instructions
         agent = Agent(
             model=OpenRouter(
-                id=os.getenv("PLANNER_MODEL_ID", "google/gemini-2.5-pro"),
+                id=os.getenv("PLANNER_MODEL_ID", "google/gemini-2.5-flash"),
                 max_tokens=None,
             ),
             tools=[
@@ -153,10 +159,15 @@ class ExecutionPlanner:
                 self.tool_get_agent_description,
             ],
             markdown=False,
-            debug_mode=os.getenv("AGENT_DEBUG_MODE", "false").lower() == "true",
-            instructions=[
-                create_prompt_with_datetime(PLANNER_INSTRUCTIONS),
-            ],
+            debug_mode=agent_debug_mode_enabled(),
+            instructions=[PLANNER_INSTRUCTIONS],
+            # context
+            db=InMemoryDb(),
+            add_datetime_to_context=True,
+            add_history_to_context=True,
+            num_history_runs=3,
+            read_chat_history=True,
+            enable_session_summaries=True,
         )
 
         # Execute planning with the agent
@@ -164,7 +175,8 @@ class ExecutionPlanner:
             PlannerInput(
                 desired_agent_name=user_input.desired_agent_name,
                 query=user_input.query,
-            )
+            ),
+            session_id=conversation_id,
         )
 
         # Handle user input requests through Human-in-the-Loop workflow
