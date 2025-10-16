@@ -9,8 +9,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict
 
-import questionary
-
 # Mapping from agent name to analyst key (for ai-hedge-fund agents)
 MAP_NAME_ANALYST: Dict[str, str] = {
     "AswathDamodaranAgent": "aswath_damodaran",
@@ -30,9 +28,9 @@ MAP_NAME_ANALYST: Dict[str, str] = {
     "ValuationAnalystAgent": "valuation_analyst",
     "WarrenBuffettAgent": "warren_buffett",
 }
-SEC_AGENT_NAME = "SECAgent"
 TRADING_AGENTS_NAME = "TradingAgents"
-AGENTS = list(MAP_NAME_ANALYST.keys()) + [SEC_AGENT_NAME, TRADING_AGENTS_NAME]
+RESEARCH_AGENT_NAME = "ResearchAgent"
+AGENTS = list(MAP_NAME_ANALYST.keys()) + [TRADING_AGENTS_NAME, RESEARCH_AGENT_NAME]
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent.parent
 PYTHON_DIR = PROJECT_DIR / "python"
@@ -50,11 +48,11 @@ for name, analyst in MAP_NAME_ANALYST.items():
     MAP_NAME_COMMAND[name] = (
         f"cd {PYTHON_DIR_STR}/third_party/ai-hedge-fund && uv run --env-file {ENV_PATH_STR} -m adapter --analyst {analyst}"
     )
-MAP_NAME_COMMAND[SEC_AGENT_NAME] = (
-    f"uv run --env-file {ENV_PATH_STR} -m valuecell.agents.sec_agent"
-)
 MAP_NAME_COMMAND[TRADING_AGENTS_NAME] = (
     f"cd {PYTHON_DIR_STR}/third_party/TradingAgents && uv run --env-file {ENV_PATH_STR} -m adapter"
+)
+MAP_NAME_COMMAND[RESEARCH_AGENT_NAME] = (
+    f"uv run --env-file {ENV_PATH_STR} -m valuecell.agents.research_agent"
 )
 BACKEND_COMMAND = (
     f"cd {PYTHON_DIR_STR} && uv run --env-file {ENV_PATH_STR} -m valuecell.server.main"
@@ -77,10 +75,11 @@ def main():
     log_dir = f"{PROJECT_DIR_STR}/logs/{timestamp}"
 
     # Use questionary multi-select to allow choosing multiple agents
-    selected_agents = questionary.checkbox(
-        "Choose agents to launch (use space to select, enter to confirm):",
-        choices=AGENTS,
-    ).ask()
+    # selected_agents = questionary.checkbox(
+    #     "Choose agents to launch (use space to select, enter to confirm):",
+    #     choices=AGENTS,
+    # ).ask()
+    selected_agents = AGENTS
 
     if not selected_agents:
         print("No agents selected.")

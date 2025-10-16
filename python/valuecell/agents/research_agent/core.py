@@ -1,7 +1,7 @@
 import os
-from typing import AsyncGenerator, Dict, Iterator, Optional
+from typing import AsyncGenerator, Dict, Optional
 
-from agno.agent import Agent, RunOutputEvent
+from agno.agent import Agent
 from agno.db.in_memory import InMemoryDb
 from agno.models.google import Gemini
 from agno.models.openrouter import OpenRouter
@@ -17,12 +17,13 @@ from valuecell.agents.research_agent.sources import (
     fetch_event_sec_filings,
     fetch_periodic_sec_filings,
 )
+from valuecell.agents.utils.context import build_ctx_from_dep
 from valuecell.core.agent.responses import streaming
 from valuecell.core.types import BaseAgent, StreamResponse
 from valuecell.utils.env import agent_debug_mode_enabled
 
 
-def _get_model_based_on_env() -> str:
+def _get_model_based_on_env():
     model_id = os.getenv("RESEARCH_AGENT_MODEL_ID")
     if os.getenv("GOOGLE_API_KEY"):
         return Gemini(id=model_id or "gemini-2.5-flash")
@@ -58,11 +59,13 @@ class ResearchAgent(BaseAgent):
         task_id: str,
         dependencies: Optional[Dict] = None,
     ) -> AsyncGenerator[StreamResponse, None]:
-        response_stream: Iterator[RunOutputEvent] = self.knowledge_research_agent.arun(
+        response_stream = self.knowledge_research_agent.arun(
             query,
             stream=True,
             stream_intermediate_steps=True,
             session_id=conversation_id,
+            add_dependencies_to_context=True,
+            dependencies=build_ctx_from_dep(dependencies),
         )
         async for event in response_stream:
             if event.event == "RunContent":
