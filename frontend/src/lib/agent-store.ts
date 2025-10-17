@@ -57,13 +57,17 @@ function hasContent(
 }
 
 // Helper function: add or update item in task
-function addOrUpdateItem(task: TaskView, newItem: ChatItem): void {
+function addOrUpdateItem(
+  task: TaskView,
+  newItem: ChatItem,
+  event: "append" | "replace",
+): void {
   const existingIndex = findExistingItem(task, newItem.item_id);
 
   if (existingIndex >= 0) {
     const existingItem = task.items[existingIndex];
     // Merge content for streaming events, replace for others
-    if (hasContent(existingItem) && hasContent(newItem)) {
+    if (event === "append" && hasContent(existingItem) && hasContent(newItem)) {
       existingItem.payload.content += newItem.payload.content;
     } else {
       task.items[existingIndex] = newItem;
@@ -74,7 +78,11 @@ function addOrUpdateItem(task: TaskView, newItem: ChatItem): void {
 }
 
 // Generic handler for events that create chat items
-function handleChatItemEvent(draft: AgentConversationsStore, data: ChatItem) {
+function handleChatItemEvent(
+  draft: AgentConversationsStore,
+  data: ChatItem,
+  event: "append" | "replace" = "append",
+) {
   const { conversation, task } = ensurePath(draft, data);
 
   // Auto-maintain sections - only non-markdown types create independent sections
@@ -100,13 +108,13 @@ function handleChatItemEvent(draft: AgentConversationsStore, data: ChatItem) {
     return;
   }
 
-  addOrUpdateItem(task, data);
+  addOrUpdateItem(task, data, event);
 }
 
 export function updateAgentConversationsStore(
   store: AgentConversationsStore,
   sseData: SSEData,
-): AgentConversationsStore {
+) {
   const { event, data } = sseData;
 
   // Use mutative to create new state with type-safe event handling
@@ -131,11 +139,21 @@ export function updateAgentConversationsStore(
         handleChatItemEvent(draft, { component_type: "markdown", ...data });
         break;
 
-      // TODO: tool call is not supported yet
-      // case "tool_call_started":
-      // case "tool_call_completed":
-      //   handleChatItemEvent(draft, { component_type: "tool_call", ...data });
-      //   break;
+      case "tool_call_started":
+      case "tool_call_completed": {
+        handleChatItemEvent(
+          draft,
+          {
+            component_type: "tool_call",
+            ...data,
+            payload: {
+              content: JSON.stringify(data.payload),
+            },
+          },
+          "replace",
+        );
+        break;
+      }
 
       case "reasoning_started":
       case "reasoning_completed":
