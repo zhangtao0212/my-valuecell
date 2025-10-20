@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from typing import AsyncGenerator, Dict, Optional
 
@@ -20,6 +21,8 @@ from valuecell.core.conversation import (
     ConversationStatus,
     SQLiteItemStore,
 )
+from valuecell.core.coordinate.models import ExecutionPlan
+from valuecell.core.coordinate.planner import ExecutionPlanner, UserInputRequest
 from valuecell.core.coordinate.response import ResponseFactory
 from valuecell.core.coordinate.response_buffer import ResponseBuffer, SaveItem
 from valuecell.core.coordinate.response_router import (
@@ -27,15 +30,22 @@ from valuecell.core.coordinate.response_router import (
     SideEffectKind,
     handle_status_update,
 )
+from valuecell.core.coordinate.super_agent import (
+    SuperAgent,
+    SuperAgentDecision,
+    SuperAgentOutcome,
+)
 from valuecell.core.task import Task, TaskManager
 from valuecell.core.task.models import TaskPattern
-from valuecell.core.types import BaseResponse, ConversationItemEvent, UserInput
+from valuecell.core.types import (
+    BaseResponse,
+    ConversationItemEvent,
+    StreamResponseEvent,
+    UserInput,
+)
 from valuecell.utils import resolve_db_path
 from valuecell.utils.i18n_utils import get_current_language, get_current_timezone
-from valuecell.utils.uuid import generate_thread_id
-
-from .models import ExecutionPlan
-from .planner import ExecutionPlanner, UserInputRequest
+from valuecell.utils.uuid import generate_item_id, generate_task_id, generate_thread_id
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +160,9 @@ class AgentOrchestrator:
 
         # Initialize planner
         self.planner = ExecutionPlanner(self.agent_connections)
+
+        # Initialize Super Agent (triage/frontline agent)
+        self.super_agent = SuperAgent()
 
         self._response_factory = ResponseFactory()
         # Buffer for streaming responses -> persisted ConversationItems
@@ -390,11 +403,30 @@ class AgentOrchestrator:
         await self._persist_from_buffer(response)
         yield response
 
+        # 1) Super Agent triage phase (pre-planning) - skip if target agent is specified
+        if user_input.target_agent_name == self.super_agent.name:
+            super_outcome: SuperAgentOutcome = await self.super_agent.run(user_input)
+            if super_outcome.decision == SuperAgentDecision.ANSWER:
+                ans = self._response_factory.message_response_general(
+                    StreamResponseEvent.MESSAGE_CHUNK,
+                    conversation_id,
+                    thread_id,
+                    task_id=generate_task_id(),
+                    content=super_outcome.answer_content,
+                )
+                await self._persist_from_buffer(ans)
+                yield ans
+                return
+
+            if super_outcome.decision == SuperAgentDecision.HANDOFF_TO_PLANNER:
+                user_input.target_agent_name = ""
+                user_input.query = super_outcome.enriched_query
+
+        # 2) Planner phase (existing logic)
         # Create planning task with user input callback
         context_aware_callback = self._create_context_aware_callback(conversation_id)
-
         planning_task = asyncio.create_task(
-            self.planner.create_plan(user_input, context_aware_callback)
+            self.planner.create_plan(user_input, context_aware_callback, thread_id)
         )
 
         # Monitor planning progress
@@ -465,7 +497,9 @@ class AgentOrchestrator:
 
         # Planning completed, execute plan
         plan = await planning_task
-        async for response in self._execute_plan_with_input_support(plan, thread_id):
+        async for response in self._execute_plan_with_input_support(
+            plan, conversation_id, thread_id
+        ):
             yield response
 
     async def _request_user_input(self, conversation_id: str):
@@ -536,7 +570,9 @@ class AgentOrchestrator:
         plan = await planning_task
         del self._execution_contexts[conversation_id]
 
-        async for response in self._execute_plan_with_input_support(plan, thread_id):
+        async for response in self._execute_plan_with_input_support(
+            plan, conversation_id, thread_id
+        ):
             yield response
 
     async def _cancel_execution(self, conversation_id: str):
@@ -590,7 +626,11 @@ class AgentOrchestrator:
     # ==================== Plan and Task Execution Methods ====================
 
     async def _execute_plan_with_input_support(
-        self, plan: ExecutionPlan, thread_id: str, metadata: Optional[dict] = None
+        self,
+        plan: ExecutionPlan,
+        conversation_id: str,
+        thread_id: str,
+        metadata: Optional[dict] = None,
     ) -> AsyncGenerator[BaseResponse, None]:
         """
         Execute an execution plan with Human-in-the-Loop support.
@@ -605,15 +645,24 @@ class AgentOrchestrator:
         Yields:
             Streaming `BaseResponse` objects produced by each task execution.
         """
-        conversation_id = plan.conversation_id
-
-        if not plan.tasks:
-            yield self._response_factory.plan_failed(
-                conversation_id, thread_id, "No tasks found for this request."
-            )
-            return
 
         for task in plan.tasks:
+            subagent_conversation_item_id = generate_item_id()
+            if task.handoff_from_super_agent:
+                yield self._response_factory.component_generator(
+                    conversation_id=conversation_id,
+                    thread_id=thread_id,
+                    task_id=task.task_id,
+                    content=json.dumps(
+                        {
+                            "conversation_id": task.conversation_id,
+                            "agent_name": task.agent_name,
+                            "phase": "start",
+                        }
+                    ),
+                    component_type="subagent_conversation",
+                    item_id=subagent_conversation_item_id,
+                )
             try:
                 # Register the task with TaskManager (persist in-memory)
                 await self.task_manager.update_task(task)
@@ -639,6 +688,22 @@ class AgentOrchestrator:
                     task.task_id,
                     error_msg,
                 )
+            finally:
+                if task.handoff_from_super_agent:
+                    yield self._response_factory.component_generator(
+                        conversation_id=conversation_id,
+                        thread_id=thread_id,
+                        task_id=task.task_id,
+                        content=json.dumps(
+                            {
+                                "conversation_id": task.conversation_id,
+                                "agent_name": task.agent_name,
+                                "phase": "end",
+                            }
+                        ),
+                        component_type="subagent_conversation",
+                        item_id=subagent_conversation_item_id,
+                    )
 
     async def _execute_task_with_input_support(
         self, task: Task, thread_id: str, metadata: Optional[dict] = None
@@ -655,8 +720,8 @@ class AgentOrchestrator:
             # Start task execution
             task_id = task.task_id
             conversation_id = task.conversation_id
-            await self.task_manager.start_task(task_id)
 
+            await self.task_manager.start_task(task_id)
             # Get agent connection
             agent_name = task.agent_name
             agent_card = await self.agent_connections.start_agent(
