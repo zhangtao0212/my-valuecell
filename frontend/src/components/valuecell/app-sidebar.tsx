@@ -78,7 +78,7 @@ const SidebarFooter: FC<SidebarFooterProps> = ({ children, className }) => {
 
 const SidebarMenu: FC<SidebarMenuProps> = ({ children, className }) => {
   return (
-    <div className={cn("flex flex-col items-center gap-3 pt-3", className)}>
+    <div className={cn("flex flex-col items-center gap-3", className)}>
       {children}
     </div>
   );
@@ -118,8 +118,17 @@ const SidebarMenuItem: FC<SidebarItemProps> = ({
 };
 
 const AppSidebar: FC = () => {
-  const pathname = useLocation().pathname;
-  const prefix = pathname.split("/")[2] ?? "";
+  const pathArray = useLocation().pathname.split("/");
+
+  const prefix = useMemo(() => {
+    const subPath = pathArray[1] ?? "";
+    switch (subPath) {
+      case "agent":
+        return `/${subPath}/${pathArray[2]}`;
+      default:
+        return `/${subPath}`;
+    }
+  }, [pathArray]);
 
   const navItems = useMemo(() => {
     return {
@@ -128,16 +137,16 @@ const AppSidebar: FC = () => {
           id: "home",
           icon: Logo,
           label: "Home",
-          to: "/",
+          to: "/home",
+        },
+        {
+          id: "market",
+          icon: ChartBarVertical,
+          label: "Market",
+          to: "/market",
         },
       ],
       config: [
-        {
-          id: "chart",
-          icon: ChartBarVertical,
-          label: "Chart",
-          to: "chart",
-        },
         { id: "book", icon: BookOpen, label: "Book", to: "book" },
         {
           id: "settings",
@@ -150,7 +159,7 @@ const AppSidebar: FC = () => {
     };
   }, []);
 
-  const { data: agentList } = useGetAgentList({ enabled_only: true });
+  const { data: agentList } = useGetAgentList({ enabled_only: "true" });
   const agentItems = useMemo(() => {
     return agentList?.map((agent) => ({
       id: agent.agent_name,
@@ -161,27 +170,33 @@ const AppSidebar: FC = () => {
   }, [agentList]);
 
   // verify the button is active
-  const verifyActive = (to: string) => `/${prefix}` === to;
+  const verifyActive = (to: string) => prefix === to;
 
   return (
     <Sidebar>
       <SidebarHeader>
-        <NavLink to={navItems.home[0].to}>
-          <SidebarMenuItem
-            aria-label={navItems.home[0].label}
-            data-active={verifyActive(navItems.home[0].to)}
-            className="p-2"
-          >
-            <SvgIcon name={Logo} />
-          </SidebarMenuItem>
-        </NavLink>
+        <SidebarMenu>
+          {navItems.home.map((item) => {
+            return (
+              <NavLink key={item.id} to={item.to}>
+                <SidebarMenuItem
+                  aria-label={item.label}
+                  data-active={verifyActive(item.to)}
+                  className="p-2"
+                >
+                  <SvgIcon name={item.icon} />
+                </SidebarMenuItem>
+              </NavLink>
+            );
+          })}
+        </SidebarMenu>
       </SidebarHeader>
 
       <Separator className="!w-10 bg-white" />
 
       <SidebarContent className="max-h-[calc(100vh-11rem)]">
         <ScrollContainer className="w-full">
-          <SidebarMenu>
+          <SidebarMenu className="py-3">
             {agentItems?.map((item) => {
               return (
                 <NavLink key={item.id} to={item.to}>
@@ -190,7 +205,7 @@ const AppSidebar: FC = () => {
                       <SidebarMenuItem
                         type="agent"
                         aria-label={item.label}
-                        data-active={verifyActive(`/${item.id}`)}
+                        data-active={verifyActive(item.to)}
                       >
                         <AgentAvatar agentName={item.id} />
                       </SidebarMenuItem>

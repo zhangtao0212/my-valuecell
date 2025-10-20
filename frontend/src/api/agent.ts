@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { API_QUERY_KEYS } from "@/constants/api";
 import { type ApiResponse, apiClient } from "@/lib/api-client";
 import type { AgentInfo } from "@/types/agent";
@@ -14,13 +14,32 @@ export const useGetAgentInfo = (params: { agentName: string }) => {
   });
 };
 
-export const useGetAgentList = (params?: { enabled_only: boolean }) => {
+export const useGetAgentList = (
+  params: { enabled_only: string } = { enabled_only: "false" },
+) => {
   return useQuery({
-    queryKey: API_QUERY_KEYS.AGENT.agentList,
+    queryKey: API_QUERY_KEYS.AGENT.agentList(Object.values(params)),
     queryFn: () =>
       apiClient.get<ApiResponse<{ agents: AgentInfo[] }>>(
-        `/agents?enabled_only=${params?.enabled_only || false}`,
+        `/agents?enabled_only=${params.enabled_only}`,
       ),
     select: (data) => data.data.agents,
+  });
+};
+
+export const useEnableAgent = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params: { agentName: string; enabled: boolean }) =>
+      apiClient.post<ApiResponse<null>>(`/agents/${params.agentName}/enable`, {
+        enabled: params.enabled,
+      }),
+    onSuccess: () => {
+      // invalidate agent list query cache to trigger re-fetch
+      queryClient.invalidateQueries({
+        queryKey: ["agent", "list"],
+      });
+    },
   });
 };
