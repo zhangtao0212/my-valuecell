@@ -1,63 +1,37 @@
+import { useCallback, useEffect } from "react";
 import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useReducer,
-  useRef,
-  useState,
-} from "react";
-import { Navigate, useParams } from "react-router";
+  Navigate,
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
 import { toast } from "sonner";
 import { useGetAgentInfo } from "@/api/agent";
 import { useSSE } from "@/hooks/use-sse";
-import { updateAgentConversationsStore } from "@/lib/agent-store";
 import { getServerUrl } from "@/lib/api-client";
-import type {
-  AgentConversationsStore,
-  AgentStreamRequest,
-  SSEData,
-} from "@/types/agent";
+import {
+  useAgentStoreActions,
+  useCurrentConversation,
+} from "@/store/agent-store";
+import type { AgentStreamRequest, SSEData } from "@/types/agent";
 import type { Route } from "./+types/chat";
 import ChatConversationArea from "./components/chat-conversation/chat-conversation-area";
 
-// Optimized reducer for agent store management
-function agentStoreReducer(
-  state: AgentConversationsStore,
-  action: SSEData,
-): AgentConversationsStore {
-  return updateAgentConversationsStore(state, action);
-}
-
 export default function AgentChat() {
   const { agentName } = useParams<Route.LoaderArgs["params"]>();
+  const conversationId = useSearchParams()[0].get("id");
+  const navigate = useNavigate();
+  const inputValue = useLocation().state?.inputValue;
+
   const { data: agent, isLoading: isLoadingAgent } = useGetAgentInfo({
     agentName: agentName ?? "",
   });
 
-  // Use optimized reducer for state management
-  const [agentStore, dispatchAgentStore] = useReducer(agentStoreReducer, {});
-  console.log("🚀 ~ AgentChat ~ agentStore:", agentStore);
+  // Use optimized hooks with built-in shallow comparison
+  const { curConversation, curConversationId } = useCurrentConversation();
 
-  // TODO: temporary conversation id (after will remove hardcoded)
-  const [curConversationId, setCurConversationId] = useState<string>(
-    `${agentName}_conv_default_user`,
-  );
-  const curThreadId = useRef<string>("");
-
-  // Only update conversation ID when agentName actually changes
-  useEffect(() => {
-    const newConversationId = `${agentName}_conv_default_user`;
-    if (curConversationId !== newConversationId) {
-      setCurConversationId(newConversationId);
-    }
-  }, [agentName, curConversationId]);
-
-  // Get current conversation using original data structure
-  const currentConversation = useMemo(() => {
-    return curConversationId in agentStore
-      ? agentStore[curConversationId]
-      : null;
-  }, [agentStore, curConversationId]);
+  const { dispatchAgentStore, setCurConversationId } = useAgentStoreActions();
 
   // Handle SSE data events using agent store
   // biome-ignore lint/correctness/useExhaustiveDependencies: close is no need to be in dependencies
@@ -70,10 +44,6 @@ export default function AgentChat() {
     switch (event) {
       case "conversation_started":
         setCurConversationId(data.conversation_id);
-        break;
-
-      case "thread_started":
-        curThreadId.current = data.thread_id;
         break;
 
       case "system_failed":
@@ -90,10 +60,6 @@ export default function AgentChat() {
 
       // All message-related events are handled by the store
       default:
-        // Update current thread ID for message events
-        if ("thread_id" in data) {
-          curThreadId.current = data.thread_id;
-        }
         break;
     }
   }, []);
@@ -132,8 +98,18 @@ export default function AgentChat() {
         console.error("Failed to send message:", error);
       }
     },
-    [agentName],
+    [agentName, curConversationId],
   );
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: setCurConversationId and navigate are no need to be in dependencies
+  useEffect(() => {
+    if (conversationId) setCurConversationId(conversationId);
+    if (inputValue) {
+      sendMessage(inputValue);
+      // Clear the state after using it once to prevent re-triggering on page refresh
+      navigate(".", { replace: true, state: {} });
+    }
+  }, [conversationId, inputValue, sendMessage]);
 
   if (isLoadingAgent) return null;
   if (!agent) return <Navigate to="/" replace />;
@@ -142,7 +118,7 @@ export default function AgentChat() {
     <main className="relative flex flex-1 flex-col overflow-hidden">
       <ChatConversationArea
         agent={agent}
-        currentConversation={currentConversation}
+        currentConversation={curConversation}
         isStreaming={isStreaming}
         sendMessage={sendMessage}
       />
