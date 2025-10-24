@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import AppConversationSheet from "@/components/valuecell/app-conversation-sheet";
 import { HOME_STOCK_SHOW } from "@/constants/stock";
 import { agentSuggestions } from "@/mock/agent-data";
 import ChatInputArea from "../agent/components/chat-conversation/chat-input-area";
@@ -18,14 +17,10 @@ function Home() {
   const { sparklineStocks } = useSparklineStocks(HOME_STOCK_SHOW);
 
   return (
-    <div className="flex h-full min-w-[800px] flex-col gap-4 px-2">
+    <div className="flex h-full min-w-[800px] flex-col gap-3">
       <SparklineStockList stocks={sparklineStocks} />
 
-      <section className="relative flex flex-1 flex-col items-center justify-center gap-12 rounded-xl bg-white py-8">
-        <div className="absolute top-2 left-2">
-          <AppConversationSheet />
-        </div>
-
+      <section className="flex flex-1 flex-col items-center justify-center gap-8 rounded-lg bg-white py-8">
         <div className="space-y-4 text-center text-gray-950">
           <h1 className="font-medium text-3xl">👋 Hello Investor!</h1>
           <p>
