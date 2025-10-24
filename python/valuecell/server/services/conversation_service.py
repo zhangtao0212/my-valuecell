@@ -44,35 +44,14 @@ class ConversationService:
 
         # Apply pagination
         total = len(conversations)
-        paginated_conversations = conversations[offset : offset + limit]
 
         # Convert to response format
         conversation_items = []
-        for conv in paginated_conversations:
-            # Get the latest item to extract agent_name
-            latest_items = await self.item_store.get_items(
-                conversation_id=conv.conversation_id, limit=1
-            )
-
-            agent_name = "unknown"
-            if latest_items:
-                # Try to extract agent_name from the latest item's metadata
-                latest_item = latest_items[0]
-                if hasattr(latest_item, "metadata") and latest_item.metadata:
-                    extracted_name = latest_item.metadata.get("agent_name")
-                    if extracted_name:
-                        agent_name = extracted_name
-                elif hasattr(latest_item, "agent_name") and latest_item.agent_name:
-                    agent_name = latest_item.agent_name
-
-            # Ensure agent_name is never None or empty
-            if not agent_name or agent_name is None:
-                agent_name = "unknown"
-
+        for conv in conversations:
             conversation_item = ConversationListItem(
                 conversation_id=conv.conversation_id,
                 title=conv.title or f"Conversation {conv.conversation_id}",
-                agent_name=agent_name,
+                agent_name=conv.agent_name,
                 update_time=conv.updated_at.isoformat()
                 if conv.updated_at
                 else conv.created_at.isoformat(),
