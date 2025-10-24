@@ -11,6 +11,7 @@ from .asset import Asset
 
 # Import base model
 from .base import Base
+from .user_profile import ProfileCategory, UserProfile
 from .watchlist import Watchlist, WatchlistItem
 
 # Export all models
@@ -20,4 +21,6 @@ __all__ = [
     "Asset",
     "Watchlist",
     "WatchlistItem",
+    "UserProfile",
+    "ProfileCategory",
 ]

@@ -48,6 +48,7 @@ from valuecell.core.types import (
 )
 from valuecell.utils import resolve_db_path
 from valuecell.utils.i18n_utils import get_current_language, get_current_timezone
+from valuecell.utils.user_profile_utils import get_user_profile_metadata
 from valuecell.utils.uuid import generate_item_id, generate_task_id, generate_thread_id
 
 logger = logging.getLogger(__name__)
@@ -766,9 +767,12 @@ class AgentOrchestrator:
             # Configure Agno metadata, reference: https://docs.agno.com/examples/concepts/agent/other/agent_run_metadata#agent-run-metadata
             metadata[METADATA] = {}
 
+            # Get user profile metadata
+            user_profile_data = get_user_profile_metadata(task.user_id)
+
             # Configure Agno dependencies, reference: https://docs.agno.com/concepts/teams/dependencies#dependencies
             metadata[DEPENDENCIES] = {
-                USER_PROFILE: {},
+                USER_PROFILE: user_profile_data,
                 CURRENT_CONTEXT: {},
                 LANGUAGE: get_current_language(),
                 TIMEZONE: get_current_timezone(),

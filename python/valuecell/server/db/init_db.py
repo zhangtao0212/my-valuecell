@@ -313,7 +313,7 @@ class DatabaseInitializer:
         return None
 
     def initialize_basic_data(self) -> bool:
-        """Initialize default agent and asset data."""
+        """Initialize default agent data."""
         try:
             logger.info("Initializing default agent data...")
 
@@ -368,15 +368,6 @@ class DatabaseInitializer:
 
                 session.commit()
                 logger.info("Default agent data initialization completed")
-
-                # Initialize assets using AssetService
-                assets_initialized = self.initialize_assets_with_service()
-                if not assets_initialized:
-                    logger.warning(
-                        "Asset initialization via AssetService failed, but continuing..."
-                    )
-
-                logger.info("Default agent and asset data initialization completed")
                 return True
 
             except Exception as e:
