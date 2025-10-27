@@ -1,5 +1,6 @@
 import {
   AswathDamodaranPng,
+  AutoTradingAgentPng,
   BenGrahamPng,
   BillAckmanPng,
   CathieWoodPng,
@@ -12,10 +13,12 @@ import {
   PhilFisherPng,
   PortfolioManagerPng,
   RakeshJhunjhunwalaPng,
+  ResearchAgentPng,
   SecAgentPng,
   StanleyDruckenmillerPng,
   TechnicalAgencyPng,
   ValuationAgencyPng,
+  ValueCellAgentPng,
   WarrenBuffettPng,
 } from "@/assets/png";
 import {
@@ -66,6 +69,8 @@ export const COMPONENT_RENDERER_MAP: {
 
 export const AGENT_AVATAR_MAP: Record<string, string> = {
   // Investment Masters
+  ResearchAgent: ResearchAgentPng,
+  AutoTradingAgent: AutoTradingAgentPng,
   AswathDamodaranAgent: AswathDamodaranPng,
   BenGrahamAgent: BenGrahamPng,
   BillAckmanAgent: BillAckmanPng,
@@ -78,6 +83,7 @@ export const AGENT_AVATAR_MAP: Record<string, string> = {
   RakeshJhunjhunwalaAgent: RakeshJhunjhunwalaPng,
   StanleyDruckenmillerAgent: StanleyDruckenmillerPng,
   WarrenBuffettAgent: WarrenBuffettPng,
+  ValueCellAgent: ValueCellAgentPng,
 
   // Analyst Agents
   FundamentalsAnalystAgent: FundamentalProxyPng,
