@@ -20,18 +20,18 @@ from agno.agent import Agent
 from agno.db.in_memory import InMemoryDb
 
 from valuecell.core.agent.connect import RemoteConnections
-from valuecell.core.coordinate.planner_prompts import (
-    PLANNER_EXPECTED_OUTPUT,
-    PLANNER_INSTRUCTION,
-)
-from valuecell.core.task import Task, TaskPattern, TaskStatus
+from valuecell.core.task.models import Task, TaskStatus
 from valuecell.core.types import UserInput
 from valuecell.utils import generate_uuid
 from valuecell.utils.env import agent_debug_mode_enabled
 from valuecell.utils.model import get_model
-from valuecell.utils.uuid import generate_conversation_id, generate_thread_id
+from valuecell.utils.uuid import generate_conversation_id
 
 from .models import ExecutionPlan, PlannerInput, PlannerResponse
+from .prompts import (
+    PLANNER_EXPECTED_OUTPUT,
+    PLANNER_INSTRUCTION,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +88,28 @@ class ExecutionPlanner:
         agent_connections: RemoteConnections,
     ):
         self.agent_connections = agent_connections
+        self.planner_agent = Agent(
+            model=get_model("PLANNER_MODEL_ID"),
+            tools=[
+                # TODO: enable UserControlFlowTools when stable
+                # UserControlFlowTools(),
+                self.tool_get_enabled_agents,
+            ],
+            debug_mode=agent_debug_mode_enabled(),
+            instructions=[PLANNER_INSTRUCTION],
+            # output format
+            markdown=False,
+            use_json_mode=True,
+            output_schema=PlannerResponse,
+            expected_output=PLANNER_EXPECTED_OUTPUT,
+            # context
+            db=InMemoryDb(),
+            add_datetime_to_context=True,
+            add_history_to_context=True,
+            num_history_runs=5,
+            read_chat_history=True,
+            enable_session_summaries=True,
+        )
 
     async def create_plan(
         self,
@@ -122,13 +144,14 @@ class ExecutionPlanner:
         )
 
         # Analyze input and create appropriate tasks
-        tasks = await self._analyze_input_and_create_tasks(
+        tasks, guidance_message = await self._analyze_input_and_create_tasks(
             user_input,
             conversation_id,
             user_input_callback,
             thread_id,
         )
         plan.tasks = tasks
+        plan.guidance_message = guidance_message
 
         return plan
 
@@ -138,7 +161,7 @@ class ExecutionPlanner:
         conversation_id: str,
         user_input_callback: Callable,
         thread_id: str,
-    ) -> List[Task]:
+    ) -> tuple[List[Task], Optional[str]]:
         """
         Analyze user input and produce a list of `Task` objects.
 
@@ -153,39 +176,17 @@ class ExecutionPlanner:
             user_input_callback: Async callback used for Human-in-the-Loop.
 
         Returns:
-            A list of `Task` objects derived from the planner response.
+            A tuple of (list of Task objects, optional guidance message).
+            If plan is inadequate, returns empty list with guidance message.
         """
-        # Create planning agent with appropriate tools and instructions
-        agent = Agent(
-            model=get_model("PLANNER_MODEL_ID"),
-            tools=[
-                # TODO: enable UserControlFlowTools when stable
-                # UserControlFlowTools(),
-                self.tool_get_enabled_agents,
-            ],
-            debug_mode=agent_debug_mode_enabled(),
-            instructions=[PLANNER_INSTRUCTION],
-            # output format
-            markdown=False,
-            use_json_mode=True,
-            output_schema=PlannerResponse,
-            expected_output=PLANNER_EXPECTED_OUTPUT,
-            # context
-            db=InMemoryDb(),
-            add_datetime_to_context=True,
-            add_history_to_context=True,
-            num_history_runs=3,
-            read_chat_history=True,
-            enable_session_summaries=True,
-        )
-
         # Execute planning with the agent
-        run_response = agent.run(
+        run_response = self.planner_agent.run(
             PlannerInput(
                 target_agent_name=user_input.target_agent_name,
                 query=user_input.query,
             ),
             session_id=conversation_id,
+            user_id=user_input.meta.user_id,
         )
 
         # Handle user input requests through Human-in-the-Loop workflow
@@ -202,7 +203,7 @@ class ExecutionPlanner:
                     field.value = user_value
 
             # Continue agent execution with updated inputs
-            run_response = agent.continue_run(
+            run_response = self.planner_agent.continue_run(
                 # TODO: rollback to `run_id=run_response.run_id` when bug fixed by Agno
                 run_response=run_response,
                 updated_tools=run_response.tools,
@@ -214,33 +215,35 @@ class ExecutionPlanner:
         # Parse planning result and create tasks
         plan_raw = run_response.content
         logger.info(f"Planner produced plan: {plan_raw}")
+
+        # Check if plan is inadequate or has no tasks
         if not plan_raw.adequate or not plan_raw.tasks:
-            # If information is still inadequate, return empty task list
-            raise ValueError(
-                "Planner indicated information is inadequate or produced no tasks."
-                f" Reason: {plan_raw.reason}"
+            # Use guidance_message from planner, or fall back to reason
+            guidance_message = plan_raw.guidance_message or plan_raw.reason
+            logger.info(f"Planner needs user guidance: {guidance_message}")
+            return [], guidance_message  # Return empty task list with guidance
+
+        # Create tasks from planner response
+        tasks = []
+        for t in plan_raw.tasks:
+            tasks.append(
+                self._create_task(
+                    t,
+                    user_input.meta.user_id,
+                    conversation_id=user_input.meta.conversation_id,
+                    thread_id=thread_id,
+                    handoff_from_super_agent=(not user_input.target_agent_name),
+                )
             )
-        return [
-            self._create_task(
-                user_input.meta.user_id,
-                task.agent_name,
-                task.query,
-                conversation_id=user_input.meta.conversation_id,
-                thread_id=thread_id,
-                pattern=task.pattern,
-                handoff_from_super_agent=(not user_input.target_agent_name),
-            )
-            for task in plan_raw.tasks
-        ]
+
+        return tasks, None  # Return tasks with no guidance message
 
     def _create_task(
         self,
+        task_brief,
         user_id: str,
-        agent_name: str,
-        query: str,
         conversation_id: str | None = None,
         thread_id: str | None = None,
-        pattern: TaskPattern = TaskPattern.ONCE,
         handoff_from_super_agent: bool = False,
     ) -> Task:
         """
@@ -252,22 +255,30 @@ class ExecutionPlanner:
             agent_name: Name of the agent to execute the task
             query: Query/prompt for the agent
             pattern: Execution pattern (once or recurring)
+            schedule_config: Schedule configuration for recurring tasks
 
         Returns:
             Task: Configured task ready for execution.
         """
+        # task_brief is a _TaskBrief model instance
+
+        # Reuse parent thread_id across subagent handoff.
+        # When handing off from Super Agent, a NEW conversation_id is created for the subagent,
+        # but we PRESERVE the parent thread_id to correlate the entire flow as one interaction.
         if handoff_from_super_agent:
             conversation_id = generate_conversation_id()
-            thread_id = generate_thread_id()
+            # Do NOT override thread_id here (keep the parent's thread_id per Spec A)
 
         return Task(
             conversation_id=conversation_id,
             thread_id=thread_id,
             user_id=user_id,
-            agent_name=agent_name,
+            agent_name=task_brief.agent_name,
             status=TaskStatus.PENDING,
-            query=query,
-            pattern=pattern,
+            title=task_brief.title,
+            query=task_brief.query,
+            pattern=task_brief.pattern,
+            schedule_config=task_brief.schedule_config,
             handoff_from_super_agent=handoff_from_super_agent,
         )
 

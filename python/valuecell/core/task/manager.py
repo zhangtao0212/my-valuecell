@@ -33,7 +33,7 @@ class TaskManager:
         if not task or task.status != TaskStatus.PENDING:
             return False
 
-        task.start_task()
+        task.start()
         await self.update_task(task)
         return True
 
@@ -43,7 +43,7 @@ class TaskManager:
         if not task or task.is_finished():
             return False
 
-        task.complete_task()
+        task.complete()
         await self.update_task(task)
         return True
 
@@ -53,7 +53,7 @@ class TaskManager:
         if not task or task.is_finished():
             return False
 
-        task.fail_task(error_message)
+        task.fail(error_message)
         await self.update_task(task)
         return True
 
@@ -63,7 +63,7 @@ class TaskManager:
         if not task or task.is_finished():
             return False
 
-        task.cancel_task()
+        task.cancel()
         await self.update_task(task)
         return True
 
@@ -77,7 +77,7 @@ class TaskManager:
 
         for task in tasks:
             if not task.is_finished():
-                task.cancel_task()
+                task.cancel()
                 await self.update_task(task)
                 cancelled_count += 1
 

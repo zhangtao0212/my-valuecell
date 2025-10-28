@@ -371,7 +371,11 @@ class TestConversationManager:
 
         assert result == items
         manager.item_store.get_items.assert_called_once_with(
-            conversation_id="conv-123", event=None, component_type=None
+            conversation_id="conv-123",
+            event=None,
+            component_type=None,
+            limit=None,
+            offset=0,
         )
 
     @pytest.mark.asyncio

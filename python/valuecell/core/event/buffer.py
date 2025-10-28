@@ -9,6 +9,8 @@ from valuecell.core.types import (
     BaseResponseDataPayload,
     CommonResponseEvent,
     NotifyResponseEvent,
+    ResponseMetadata,
+    ResponsePayload,
     Role,
     StreamResponseEvent,
     SystemResponseEvent,
@@ -24,9 +26,10 @@ class SaveItem:
     conversation_id: str
     thread_id: Optional[str]
     task_id: Optional[str]
-    payload: Optional[BaseModel]
+    payload: Optional[ResponsePayload]
     role: Role = Role.AGENT
     agent_name: Optional[str] = None
+    metadata: Optional[ResponseMetadata] = None
 
 
 # conversation_id, thread_id, task_id, event
@@ -241,6 +244,7 @@ class ResponseBuffer:
                         payload=payload,
                         role=entry.role or Role.AGENT,
                         agent_name=entry.agent_name,
+                        metadata=None,  # Buffered entries don't have metadata
                     )
                 )
             if key in self._buffers:
@@ -288,6 +292,7 @@ class ResponseBuffer:
             payload=bm,
             role=data.role,
             agent_name=data.agent_name,
+            metadata=data.metadata,
         )
 
     def _make_save_item(
@@ -306,4 +311,5 @@ class ResponseBuffer:
             payload=payload,
             role=data.role,
             agent_name=data.agent_name,
+            metadata=data.metadata,
         )

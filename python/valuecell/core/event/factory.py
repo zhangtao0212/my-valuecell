@@ -2,11 +2,13 @@ from typing import Optional
 
 from typing_extensions import Literal
 
+from valuecell.core.task.models import Task
 from valuecell.core.types import (
     BaseResponseDataPayload,
     CommonResponseEvent,
     ComponentGeneratorResponse,
     ComponentGeneratorResponseDataPayload,
+    ComponentType,
     ConversationItem,
     ConversationStartedResponse,
     DoneResponse,
@@ -16,6 +18,7 @@ from valuecell.core.types import (
     PlanRequireUserInputResponse,
     ReasoningResponse,
     Role,
+    ScheduledTaskComponentContent,
     StreamResponseEvent,
     SystemFailedResponse,
     SystemResponseEvent,
@@ -87,6 +90,18 @@ class ResponseFactory:
                 except Exception:
                     return None
 
+        # Parse metadata
+        def parse_metadata():
+            raw_metadata = item.metadata
+            if not raw_metadata:
+                return None
+            try:
+                import json
+
+                return json.loads(raw_metadata)
+            except Exception:
+                return None
+
         # Base UnifiedResponseData builder
         def make_data(payload=None):
             return UnifiedResponseData(
@@ -97,6 +112,7 @@ class ResponseFactory:
                 role=role,
                 item_id=item.item_id,
                 agent_name=item.agent_name,
+                metadata=parse_metadata(),
             )
 
         # ----- System-level events -----
@@ -484,6 +500,7 @@ class ResponseFactory:
         component_type: str,
         component_id: Optional[str] = None,
         agent_name: Optional[str] = None,
+        metadata: Optional[dict] = None,
     ) -> ComponentGeneratorResponse:
         """Create a ComponentGeneratorResponse for UI component generation.
 
@@ -511,5 +528,66 @@ class ResponseFactory:
                 role=Role.AGENT,
                 item_id=component_id or generate_item_id(),
                 agent_name=agent_name,
+                metadata=metadata,
             ),
+        )
+
+    def schedule_task_controller_component(
+        self,
+        conversation_id: str,
+        thread_id: str,
+        task: Task,
+    ) -> ComponentGeneratorResponse:
+        """Create a ComponentGeneratorResponse for a task controller component.
+
+        Args:
+            conversation_id: Conversation id.
+            thread_id: Thread id.
+            task_id: Task id.
+            task_title: Title of the scheduled task.
+            content: Serialized component content (e.g., markup or json).
+            agent_name: Name of the agent generating the component.
+
+        Returns:
+            ComponentGeneratorResponse wrapping the payload.
+        """
+        return self.component_generator(
+            conversation_id=conversation_id,
+            thread_id=thread_id,
+            task_id=task.task_id,
+            content=ScheduledTaskComponentContent(
+                task_id=task.task_id,
+                task_title=task.title,
+            ).model_dump_json(exclude_none=True),
+            component_type=ComponentType.SCHEDULED_TASK_CONTROLLER.value,
+            agent_name=task.agent_name,
+            metadata={
+                "task_title": task.title,
+            },
+        )
+
+    def schedule_task_result_component(
+        self,
+        task: Task,
+        content: str,
+    ) -> ComponentGeneratorResponse:
+        """Create a ComponentGeneratorResponse for a task result component.
+
+        Args:
+            task: The Task instance.
+            result_content: Serialized content representing the task result.
+
+        Returns:
+            ComponentGeneratorResponse wrapping the payload.
+        """
+        return self.component_generator(
+            conversation_id=task.conversation_id,
+            thread_id=task.thread_id,
+            task_id=task.task_id,
+            content=content,
+            component_type=ComponentType.SCHEDULED_TASK_RESULT.value,
+            agent_name=task.agent_name,
+            metadata={
+                "task_title": task.title,
+            },
         )

@@ -1,5 +1,8 @@
+import json
+
 import pytest
-from valuecell.core.coordinate.response import ResponseFactory
+from valuecell.core.event.factory import ResponseFactory
+from valuecell.core.task.models import Task
 from valuecell.core.types import (
     BaseResponseDataPayload,
     CommonResponseEvent,
@@ -107,3 +110,54 @@ def test_tool_call_completed(factory: ResponseFactory):
     resp = factory.from_conversation_item(item)
     assert resp.event == StreamResponseEvent.TOOL_CALL_COMPLETED
     assert resp.data.payload.tool_name == "search"  # type: ignore[attr-defined]
+
+
+def test_from_conversation_item_rejects_unknown_event(factory: ResponseFactory):
+    item = ConversationItem.model_construct(
+        item_id="it-1",
+        role=Role.AGENT,
+        agent_name=None,
+        event="unknown_event",
+        conversation_id="sess-1",
+        thread_id="th-1",
+        task_id="tk-1",
+        payload="{}",
+        metadata="{}",
+    )
+    with pytest.raises(ValueError):
+        factory.from_conversation_item(item)
+
+
+def test_schedule_task_controller_component(factory: ResponseFactory):
+    task = Task(
+        task_id="task-123",
+        title="Morning report",
+        query="run",
+        conversation_id="conv",
+        user_id="user",
+        agent_name="agent",
+    )
+
+    resp = factory.schedule_task_controller_component("conv", "thread", task)
+
+    assert resp.data.agent_name == "agent"
+    assert resp.data.metadata == {"task_title": "Morning report"}
+    payload = json.loads(resp.data.payload.content)  # type: ignore[attr-defined]
+    assert payload["task_id"] == "task-123"
+
+
+def test_schedule_task_result_component(factory: ResponseFactory):
+    task = Task(
+        task_id="task-456",
+        title="Daily summary",
+        query="run",
+        conversation_id="conv",
+        user_id="user",
+        agent_name="agent",
+    )
+
+    resp = factory.schedule_task_result_component(task, content='{"result":1}')
+
+    assert resp.data.agent_name == "agent"
+    assert resp.data.metadata == {"task_title": "Daily summary"}
+    assert resp.data.payload.content == '{"result":1}'  # type: ignore[attr-defined]

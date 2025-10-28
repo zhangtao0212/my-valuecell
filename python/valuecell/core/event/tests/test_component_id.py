@@ -1,7 +1,7 @@
 """Tests for component_id override functionality."""
 
 from valuecell.core.agent.responses import streaming, notification
-from valuecell.core.coordinate.response import ResponseFactory
+from valuecell.core.event.factory import ResponseFactory
 from valuecell.core.types import CommonResponseEvent
 
 

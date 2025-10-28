@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from valuecell.core.coordinate import planner as planner_mod
-from valuecell.core.coordinate.planner import ExecutionPlanner
-from valuecell.core.coordinate.models import PlannerResponse
+import valuecell.core.plan.planner as planner_mod
+from valuecell.core.plan.models import PlannerResponse
+from valuecell.core.plan.planner import ExecutionPlanner
 from valuecell.core.types import UserInput, UserInputMetadata
 
 
@@ -32,11 +32,14 @@ async def test_create_plan_handles_paused_run(monkeypatch: pytest.MonkeyPatch):
             "reason": "ok",
             "tasks": [
                 {
+                    "title": "Research task",
                     "query": "Run research",
                     "agent_name": "ResearchAgent",
                     "pattern": "once",
+                    "schedule_config": None,
                 }
             ],
+            "guidance_message": None,
         }
     )
 
@@ -127,8 +130,8 @@ async def test_create_plan_raises_on_inadequate_plan(monkeypatch: pytest.MonkeyP
     async def callback(request):
         raise AssertionError("callback should not be invoked")
 
-    with pytest.raises(ValueError):
-        await planner.create_plan(user_input, callback, "thread-55")
+    plan = await planner.create_plan(user_input, callback, "thread-55")
+    assert plan.guidance_message
 
 
 def test_tool_get_enabled_agents_formats_cards():

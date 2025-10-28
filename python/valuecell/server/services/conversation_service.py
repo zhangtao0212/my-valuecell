@@ -7,7 +7,10 @@ from valuecell.core.conversation import (
     SQLiteConversationStore,
     SQLiteItemStore,
 )
-from valuecell.core.coordinate.orchestrator import AgentOrchestrator
+from valuecell.core.conversation.service import (
+    ConversationService as CoreConversationService,
+)
+from valuecell.core.event.factory import ResponseFactory
 from valuecell.server.api.schemas.conversation import (
     ConversationDeleteData,
     ConversationHistoryData,
@@ -31,7 +34,10 @@ class ConversationService:
         self.conversation_manager = ConversationManager(
             conversation_store=conversation_store, item_store=self.item_store
         )
-        self.orchestrator = AgentOrchestrator()
+        self.core_conversation_service = CoreConversationService(
+            manager=self.conversation_manager
+        )
+        self.response_factory = ResponseFactory()
 
     async def get_conversation_list(
         self, user_id: Optional[str] = None, limit: int = 10, offset: int = 0
@@ -69,10 +75,17 @@ class ConversationService:
         if not conversation:
             raise ValueError(f"Conversation {conversation_id} not found")
 
-        # Get conversation history using orchestrator's method
-        base_responses = await self.orchestrator.get_conversation_history(
-            conversation_id=conversation_id
+        # Retrieve persisted conversation items and rebuild responses
+        conversation_items = (
+            await self.core_conversation_service.get_conversation_items(
+                conversation_id=conversation_id
+            )
         )
+
+        base_responses = [
+            self.response_factory.from_conversation_item(item)
+            for item in conversation_items
+        ]
 
         # Convert BaseResponse objects to ConversationHistoryItem objects
         history_items = []
@@ -104,6 +117,10 @@ class ConversationService:
                 role=role_str,
                 item_id=data.item_id,
             )
+            if data.agent_name:
+                message_data_with_meta.agent_name = data.agent_name
+            if data.metadata:
+                message_data_with_meta.metadata = data.metadata
 
             history_item = ConversationHistoryItem(
                 event=event_str, data=message_data_with_meta

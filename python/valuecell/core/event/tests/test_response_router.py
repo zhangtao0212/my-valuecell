@@ -1,26 +1,26 @@
 """
-Unit tests for valuecell.core.coordinate.response_router module
+Unit tests for valuecell.core.response.router module
 """
 
 from unittest.mock import MagicMock, patch
 
 import pytest
 from a2a.types import (
-    TaskState,
-    TaskStatusUpdateEvent,
-    TaskStatus,
     Message,
-    TextPart,
     Role,
+    TaskState,
+    TaskStatus,
+    TaskStatusUpdateEvent,
+    TextPart,
 )
 
-from valuecell.core.coordinate.response_router import (
+from valuecell.core.event.router import (
     RouteResult,
     SideEffect,
     SideEffectKind,
     handle_status_update,
 )
-from valuecell.core.task import Task
+from valuecell.core.task.models import Task
 
 
 class TestSideEffectKind:

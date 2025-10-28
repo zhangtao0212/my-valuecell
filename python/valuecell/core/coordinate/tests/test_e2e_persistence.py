@@ -35,12 +35,14 @@ async def test_orchestrator_buffer_store_e2e(tmp_path, monkeypatch):
         pass
 
     # Verify persistence: at least 1 message exists for conversation
-    msgs = await orch.conversation_manager.get_conversation_items(conversation_id)
+    msgs = await orch.conversation_service.manager.get_conversation_items(
+        conversation_id
+    )
     assert isinstance(msgs, list)
     assert len(msgs) >= 1
 
     # Also verify we can count and fetch latest
-    cnt = await orch.conversation_manager.get_item_count(conversation_id)
+    cnt = await orch.conversation_service.manager.get_item_count(conversation_id)
     assert cnt == len(msgs)
-    latest = await orch.conversation_manager.get_latest_item(conversation_id)
+    latest = await orch.conversation_service.manager.get_latest_item(conversation_id)
     assert latest is not None
