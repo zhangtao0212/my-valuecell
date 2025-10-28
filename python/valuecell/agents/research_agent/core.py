@@ -12,6 +12,7 @@ from valuecell.agents.research_agent.prompts import (
     KNOWLEDGE_AGENT_INSTRUCTION,
 )
 from valuecell.agents.research_agent.sources import (
+    fetch_ashare_filings,
     fetch_event_sec_filings,
     fetch_periodic_sec_filings,
     web_search,
@@ -29,6 +30,7 @@ class ResearchAgent(BaseAgent):
         tools = [
             fetch_periodic_sec_filings,
             fetch_event_sec_filings,
+            fetch_ashare_filings,
             web_search,
         ]
         self.knowledge_research_agent = Agent(
