@@ -9,7 +9,6 @@ from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Deque, Dict, List, Optional
 
 from agno.agent import Agent
-from agno.models.openrouter import OpenRouter
 
 from valuecell.core.agent.responses import streaming
 from valuecell.core.types import (
@@ -23,6 +22,8 @@ from valuecell.core.types import (
 from .constants import (
     DEFAULT_AGENT_MODEL,
     DEFAULT_CHECK_INTERVAL,
+    ENV_PARSER_MODEL_ID,
+    ENV_SIGNAL_MODEL_ID,
 )
 from .formatters import MessageFormatter
 from .models import (
@@ -53,9 +54,6 @@ class AutoTradingAgent(BaseAgent):
     def __init__(self):
         super().__init__()
 
-        # Configuration
-        self.parser_model_id = os.getenv("TRADING_PARSER_MODEL_ID", DEFAULT_AGENT_MODEL)
-
         # Multi-instance state management
         # Structure: {session_id: {instance_id: TradingInstanceData}}
         self.trading_instances: Dict[str, Dict[str, Dict[str, Any]]] = {}
@@ -69,8 +67,15 @@ class AutoTradingAgent(BaseAgent):
 
         try:
             # Parser agent for natural language query parsing
+            # Uses centralized configuration system with automatic provider detection
+            from valuecell.utils.model import get_model
+
+            parser_model = get_model(
+                env_key=ENV_PARSER_MODEL_ID,
+            )
+
             self.parser_agent = Agent(
-                model=OpenRouter(id=self.parser_model_id),
+                model=parser_model,
                 output_schema=TradingRequest,
                 markdown=True,
             )
@@ -466,24 +471,49 @@ class AutoTradingAgent(BaseAgent):
     def _initialize_ai_signal_generator(
         self, config: AutoTradingConfig
     ) -> Optional[AISignalGenerator]:
-        """Initialize AI signal generator if configured"""
+        """Initialize AI signal generator if configured.
+
+        Uses the centralized configuration system with proper provider selection.
+        Supports any provider configured in the config system.
+
+        Args:
+            config: AutoTradingConfig with use_ai_signals, agent_model, and agent_provider settings
+
+        Returns:
+            AISignalGenerator instance or None if AI signals are disabled or creation fails
+        """
         if not config.use_ai_signals:
             return None
 
         try:
-            api_key = config.openrouter_api_key or os.getenv("OPENROUTER_API_KEY")
-            if not api_key:
-                logger.warning("OpenRouter API key not provided, AI signals disabled")
-                return None
+            # Use centralized configuration system for model creation
+            # Supports automatic provider detection and fallback
+            from valuecell.adapters.models.factory import create_model
 
-            llm_client = OpenRouter(
-                id=config.agent_model,
-                api_key=api_key,
+            # Check for environment variable override
+            model_id_override = os.getenv(ENV_SIGNAL_MODEL_ID)
+            model_id = model_id_override or config.agent_model
+
+            # Create model with provider auto-detection or explicit provider
+            llm_client = create_model(
+                model_id=model_id,
+                provider=config.agent_provider,  # None = auto-detect
+                use_fallback=True,  # Enable fallback to other providers
+            )
+
+            logger.info(
+                f"Initialized AI signal generator: model_id={model_id}, "
+                f"provider={config.agent_provider or 'auto-detect'}"
             )
             return AISignalGenerator(llm_client)
 
         except Exception as e:
             logger.error(f"Failed to initialize AI signal generator: {e}")
+            logger.info(
+                "Hint: Make sure provider API keys are configured in .env file. "
+                "Check configs/providers/ for required environment variables. "
+                "AI signals will be disabled for this trading instance."
+            )
             return None
 
     def _get_instance_status_component_data(

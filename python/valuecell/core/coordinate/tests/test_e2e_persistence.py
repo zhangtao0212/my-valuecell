@@ -4,12 +4,27 @@ import pytest
 
 from valuecell.core.coordinate.orchestrator import AgentOrchestrator
 from valuecell.core.types import UserInput, UserInputMetadata
+import valuecell.adapters.models.factory as factory_mod
+import valuecell.utils.model as model_utils_mod
 
 
 @pytest.mark.asyncio
 async def test_orchestrator_buffer_store_e2e(tmp_path, monkeypatch):
     db_path = tmp_path / "e2e_valuecell.db"
     monkeypatch.setenv("VALUECELL_SQLITE_DB", str(db_path))
+
+    monkeypatch.setattr(
+        factory_mod, "create_model", lambda *args, **kwargs: "stub-model"
+    )
+    monkeypatch.setattr(
+        factory_mod, "create_embedder", lambda *args, **kwargs: "stub-embedder"
+    )
+    monkeypatch.setattr(
+        model_utils_mod, "create_model", lambda *args, **kwargs: "stub-model"
+    )
+    monkeypatch.setattr(
+        model_utils_mod, "create_embedder", lambda *args, **kwargs: "stub-embedder"
+    )
 
     orch = AgentOrchestrator()
 

@@ -1,0 +1,44 @@
+# ============================================
+# ValueCell Configuration System
+# ============================================
+# Configuration Priority (highest to lowest):
+# 1. Environment Variables (highest priority)
+# 2. .env file 
+# 3. YAML files (lowest priority, system defaults)
+# ============================================
+
+# Model Provider Configuration
+models:
+  # Primary provider
+  primary_provider: "openrouter"
+  
+  # Global default settings
+  defaults:
+    # temperature: 0.7
+    # max_tokens: 4096
+  
+  # Provider registry
+  providers:
+    openrouter:
+      config_file: "providers/openrouter.yaml"
+      api_key_env: "OPENROUTER_API_KEY"
+    
+    siliconflow:
+      config_file: "providers/siliconflow.yaml"
+      api_key_env: "SILICONFLOW_API_KEY"
+    
+    google:
+      config_file: "providers/google.yaml"
+      api_key_env: "GOOGLE_API_KEY"
+
+# Agent Configuration
+agents:
+  super_agent:
+    config_file: "agents/super_agent.yaml"
+  
+  research_agent:
+    config_file: "agents/research_agent.yaml"
+  
+  auto_trading_agent:
+    config_file: "agents/auto_trading_agent.yaml"
+
