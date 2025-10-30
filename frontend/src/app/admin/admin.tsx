@@ -29,6 +29,18 @@ const TIMEZONES = [
   { value: 'Europe/Paris', label: '中欧时间 (CET)' },
 ];
 
+// 布尔值选项
+const BOOLEAN_OPTIONS = [
+  { value: 'true', label: '是 (true)' },
+  { value: 'false', label: '否 (false)' },
+];
+
+// 环境选项
+const ENVIRONMENT_OPTIONS = [
+  { value: 'development', label: '开发环境 (development)' },
+  { value: 'production', label: '生产环境 (production)' },
+];
+
 export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState('');
@@ -154,8 +166,8 @@ export default function AdminPage() {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-lg shadow-md">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+        <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-lg shadow-md mx-auto">
           <div>
             <h2 className="text-2xl font-bold text-gray-900 text-center">
               管理员登录
@@ -210,7 +222,7 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-gray-50 py-8 overflow-auto">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="bg-white shadow rounded-lg">
           <div className="px-6 py-4 border-b border-gray-200">
@@ -240,6 +252,8 @@ export default function AdminPage() {
               {config.map((param, index) => {
                 const isLanguage = param.name === 'LANG';
                 const isTimezone = param.name === 'TIMEZONE';
+                const isBoolean = param.name === 'API_DEBUG' || param.name === 'API_ENABLED' || param.name === 'API_I18N_ENABLED' || param.name === 'AGENT_DEBUG_MODE';
+                const isEnvironment = param.name === 'APP_ENVIRONMENT';
                 const isReadOnly = !param.isEditing && param.value !== '' && param.value === param.originalValue;
 
                 return (
@@ -295,8 +309,40 @@ export default function AdminPage() {
                         </select>
                       )}
 
+                      {/* 布尔值选择器 */}
+                      {isBoolean && (
+                        <select
+                          value={param.value}
+                          onChange={(e) => handleInputChange(index, e.target.value)}
+                          className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        >
+                          <option value="">请选择</option>
+                          {BOOLEAN_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+
+                      {/* 环境选择器 */}
+                      {isEnvironment && (
+                        <select
+                          value={param.value}
+                          onChange={(e) => handleInputChange(index, e.target.value)}
+                          className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        >
+                          <option value="">请选择环境</option>
+                          {ENVIRONMENT_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+
                       {/* 普通文本输入框 */}
-                      {!isLanguage && !isTimezone && (
+                      {!isLanguage && !isTimezone && !isBoolean && !isEnvironment && (
                         <div className="flex space-x-2">
                           <input
                             type="text"
