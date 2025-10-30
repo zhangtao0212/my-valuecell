@@ -14,6 +14,7 @@ from .exceptions import (
     general_exception_handler,
     validation_exception_handler,
 )
+from .routers.admin import create_admin_router
 from .routers.agent import create_agent_router
 from .routers.agent_stream import create_agent_stream_router
 from .routers.conversation import create_conversation_router
@@ -128,6 +129,9 @@ def _add_routes(app: FastAPI, settings) -> None:
 
     # Include i18n router
     app.include_router(create_i18n_router(), prefix=API_PREFIX)
+
+    # Include admin router
+    app.include_router(create_admin_router(), prefix=API_PREFIX)
 
     # Include system router
     app.include_router(create_system_router(), prefix=API_PREFIX)
