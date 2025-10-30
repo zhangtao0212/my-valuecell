@@ -9,6 +9,8 @@ import {
 export default [
   index("app/redirect-to-home.tsx"),
 
+  route("/admin", "app/admin/admin.tsx"),
+
   ...prefix("/home", [
     layout("app/home/_layout.tsx", [
       index("app/home/home.tsx"),
