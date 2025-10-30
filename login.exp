@@ -1,0 +1,5 @@
+#!/usr/bin/expect -f
+spawn ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password -o StrictHostKeyChecking=no root@45.32.31.197
+expect "password:"
+send -- "H6!dc7B,M}2om%a]\r"
+interact

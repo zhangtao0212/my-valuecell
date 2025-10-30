@@ -1,0 +1,117 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "valuecell"
+version = "0.1.0"
+description = "ValueCell is a community-driven, multi-agent platform for financial applications."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pytz>=2023.3",
+    "python-dateutil>=2.8.2",
+    "fastapi>=0.104.0",
+    "pydantic>=2.0.0",
+    "uvicorn>=0.24.0",
+    "a2a-sdk[http-server]>=0.3.4",
+    "yfinance>=0.2.65",
+    "requests>=2.32.5",
+    "akshare>=1.17.44",
+    "agno[openai, google, lancedb]>=2.0,<3.0",
+    "edgartools>=4.12.2",
+    "sqlalchemy>=2.0.43",
+    "aiosqlite>=0.19.0",
+    "unstructured>=0.18.15",
+    "markdown>=3.9",
+    "loguru>=0.7.3",
+    "aiofiles>=24.1.0",
+    "crawl4ai>=0.7.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=1.0.0",
+    "diff-cover>=9.0.0",
+]
+
+[dependency-groups]
+dev = [
+    {include-group = "lint"},
+    {include-group = "style"},
+    {include-group = "test"}
+]
+lint = [
+    "ruff"
+]
+style = [
+    "ruff",
+    "isort",
+]
+test = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=1.0.0",
+    "diff-cover>=9.0.0",
+]
+
+[tool.ruff]
+line-length = 88
+indent-width = 4
+target-version = "py312"
+force-exclude = true
+exclude = [
+    "venv",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "third_party",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.hatch.build.targets.wheel]
+include = [
+    "valuecell",
+]
+exclude = [
+    "third_party/**",
+    "**/third_party/**",
+    "tests/**",
+    "**/tests/**",
+    "examples/**",
+    "**/examples/**",
+    "docs/**",
+    "**/docs/**",
+]
+
+[tool.pytest.ini_options]
+norecursedirs = [
+    ".venv",
+    "venv",
+    "build",
+    "dist",
+    "logs",
+    "third_party",
+    "examples",
+    "docs",
+]
+
+[tool.isort]
+profile = "black"
+skip_glob = [
+    "third_party/**",
+    "**/third_party/**",
+    "tests/**",
+    "**/tests/**",
+    "docs/**",
+    "**/docs/**",
+]
