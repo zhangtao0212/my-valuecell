@@ -166,8 +166,8 @@ export default function AdminPage() {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-4">
-        <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-lg shadow-md">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-lg shadow-md mx-4">
           <div>
             <h2 className="text-2xl font-bold text-gray-900 text-center">
               管理员登录
