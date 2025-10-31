@@ -166,8 +166,8 @@ export default function AdminPage() {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-lg shadow-md mx-auto">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-4">
+        <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-lg shadow-md">
           <div>
             <h2 className="text-2xl font-bold text-gray-900 text-center">
               管理员登录
@@ -187,8 +187,8 @@ export default function AdminPage() {
                 required
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                placeholder="admin"
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 placeholder-gray-400"
+                placeholder="输入用户名"
               />
             </div>
             <div>
@@ -201,7 +201,7 @@ export default function AdminPage() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 placeholder-gray-400"
                 placeholder="输入密码"
               />
             </div>
